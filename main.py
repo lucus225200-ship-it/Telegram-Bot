@@ -88,7 +88,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_caption(caption=response_text + "\n\n(ပုံမတွေ့ပါ)", reply_markup=back_keyboard, parse_mode='Markdown')
 
 if __name__ == '__main__':
-    TOKEN = "8586583701:AAGpyuEzvVyAL1nDycOKmL0LJGw-ZSXvhM8"
+    TOKEN = "8586583701:AAEHh1zKDUx2Aeyo2eT-HX8V2_-tAJORAu4"
     application = ApplicationBuilder().token(TOKEN).build()
     
     application.add_handler(CommandHandler('start', start))
