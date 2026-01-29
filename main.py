@@ -7,9 +7,9 @@ from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, Callb
 
 # ပုံလမ်းကြောင်း ရယူရန် Function
 def get_image_path(image_name):
-    desktop_path = os.path.join(os.path.expanduser("~"), "Desktop")
-    folder_path = os.path.join(desktop_path, "channel poster")
-    return os.path.join(folder_path, image_name)
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base_dir, "images", image_name)
+
 
 # ဇာတ်လမ်းဒေတာများနှင့် ပုံအမည်များ
 DRAMA_DATA = {
