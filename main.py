@@ -5,7 +5,6 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMe
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, CallbackQueryHandler, MessageHandler, filters
 
 # --- CONFIGURATION & LOGGING ---
-# ပိုမိုပြည့်စုံသော logging စနစ် (Error တွေကို ပိုသိသာစေရန်)
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -77,20 +76,19 @@ def get_drama_text(category_key):
     return img, f"{header}\n\n{list_text}"
 
 async def channel_post_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Debug: စာဝင်မဝင် သိရအောင် Log ထုတ်ကြည့်မယ်
-    logger.info("--- NEW UPDATE SEEN IN CHANNEL ---")
+    logger.info("--- CHANNEL POST RECEIVED ---")
     
+    # Check for new posts or edits
     post = update.channel_post or update.edited_channel_post
     if not post:
-        logger.info("No channel post found in this update.")
         return
 
+    # Text can be in .text or in .caption (if photo is sent)
     text = post.text if post.text else post.caption
     if not text:
-        logger.info("Update received but it has no text or caption.")
         return
 
-    logger.info(f"POST CONTENT: {text[:100]}...")
+    logger.info(f"PROCESSING TEXT: {text[:50]}...")
     
     lines = [line.strip() for line in text.split('\n') if line.strip()]
     
@@ -101,6 +99,7 @@ async def channel_post_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         for hashtag, cat_key in HASHTAG_MAP.items():
             if hashtag.lower() in line.lower():
                 found_category = cat_key
+                # Use the line immediately following the hashtag as the title
                 if i + 1 < len(lines):
                     movie_title = lines[i+1]
                 break
@@ -108,10 +107,12 @@ async def channel_post_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             break
             
     if found_category and movie_title:
+        # Add to category if not already there
         if movie_title not in persistent_data[found_category]:
             persistent_data[found_category].append(movie_title)
-            logger.info(f"SUCCESS: '{movie_title}' added to '{found_category}'")
+            logger.info(f"SUCCESS: Added '{movie_title}' to '{found_category}'")
         
+        # Add to new movies list
         if movie_title not in persistent_data['new_movies']:
             persistent_data['new_movies'].insert(0, movie_title)
             if len(persistent_data['new_movies']) > 50:
@@ -119,7 +120,7 @@ async def channel_post_handler(update: Update, context: ContextTypes.DEFAULT_TYP
                 
         save_data(persistent_data)
     else:
-        logger.warning(f"FAILED TO PARSE: Found Category: {found_category}, Title: {movie_title}")
+        logger.warning(f"PARSING FAILED: Cat={found_category}, Title={movie_title}")
 
 def get_main_keyboard():
     return InlineKeyboardMarkup([
@@ -180,19 +181,18 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 if __name__ == '__main__':
     TOKEN = "8586583701:AAE-ZVQJjw0mqKl0ePcM9QGbnVv4gLbm2fE"
     
-    # Application ကို build လုပ်တဲ့အခါ update အမျိုးအစားအားလုံးကို လက်ခံဖို့ ပြင်ဆင်ခြင်း
     application = ApplicationBuilder().token(TOKEN).build()
     
     application.add_handler(CommandHandler('start', start))
     application.add_handler(CallbackQueryHandler(button_handler))
     
-    # Filter များကို ပိုမိုကျယ်ပြန့်စွာ ထားရှိခြင်း (Text သာမက Photo Caption ပါ ဖတ်ရန်)
+    # Fix: Corrected filter to handle channel posts and edits properly
+    # Using filters.ChatType.CHANNEL ensures we listen to the channel the bot is in
     application.add_handler(MessageHandler(
-        (filters.UpdateType.CHANNEL_POSTS | filters.UpdateType.EDITED_CHANNEL_POSTS) & 
-        (filters.TEXT | filters.CAPTION), 
+        filters.ChatType.CHANNEL & (filters.TEXT | filters.CAPTION), 
         channel_post_handler
     ))
     
-    logger.info("Bot started. Listening for ALL updates...")
-    # allowed_updates=Update.ALL_TYPES ထည့်ပေးခြင်းက Channel စာတွေကို ဖတ်ဖို့ အရေးကြီးဆုံးအချက်ပါ
+    logger.info("Bot is starting and polling for updates...")
+    # allowed_updates=Update.ALL_TYPES is critical for channel support
     application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
