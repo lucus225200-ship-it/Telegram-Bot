@@ -5,6 +5,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMe
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, CallbackQueryHandler, MessageHandler, filters
 
 # --- CONFIGURATION & LOGGING ---
+# Error များကို ခြေရာခံနိုင်ရန် logging ဖွင့်ထားခြင်း
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
 # --- CONSTANTS & DATABASE PATH ---
@@ -12,7 +13,7 @@ DATA_FILE = "bot_data.json"
 CHANNEL_ID = "@Arbwrshotrtdrama"
 
 # --- DATABASE LOGIC ---
-# Hashtag နှင့် Category ချိတ်ဆက်မှု
+# Hashtag နှင့် Category ချိတ်ဆက်မှု (Auto-Update အတွက်)
 HASHTAG_MAP = {
     '#romance': 'love',
     '#family': 'family',
@@ -92,7 +93,7 @@ async def channel_post_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         for hashtag, cat_key in HASHTAG_MAP.items():
             if hashtag.lower() in line.lower():
                 found_category = cat_key
-                # Hashtag အောက်မှ ပထမဆုံး စာကြောင်းကို ယူခြင်း
+                # Hashtag အောက်မှ ပထမဆုံး စာကြောင်းကို Title အဖြစ် ယူခြင်း
                 if i + 1 < len(lines):
                     movie_title = lines[i+1]
                 break
@@ -111,6 +112,7 @@ async def channel_post_handler(update: Update, context: ContextTypes.DEFAULT_TYP
                 persistent_data['new_movies'].pop()
         
         save_data(persistent_data)
+        logging.info(f"Updated: {movie_title} added to {found_category}")
 
 # --- KEYBOARDS & COMMANDS ---
 def get_main_keyboard():
@@ -169,13 +171,17 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await query.edit_message_caption(caption=response_text, reply_markup=back_keyboard, parse_mode='Markdown')
 
+# --- MAIN RUNNER ---
 if __name__ == '__main__':
-    # နောက်ဆုံးပေးထားသော Token ကို အသုံးပြုထားပါသည်
-    TOKEN = "8586583701:AAEHh1zKDUx2Aeyo2eT-HX8V2_-tAJORAu4"
+    # Token Updated to the latest one provided: 8586583701:AAEIfryRol8G0v-AyvLohI-eaDxk5yYHcTs
+    TOKEN = "8586583701:AAEIfryRol8G0v-AyvLohI-eaDxk5yYHcTs"
     application = ApplicationBuilder().token(TOKEN).build()
     
     application.add_handler(CommandHandler('start', start))
     application.add_handler(CallbackQueryHandler(button_handler))
+    
+    # Channel မှ post များကို ဖတ်ရန် listener (Bot သည် Channel Admin ဖြစ်ရန် လိုအပ်သည်)
     application.add_handler(MessageHandler(filters.ChatType.CHANNEL, channel_post_handler))
     
+    print("Arbwr Bot is online...")
     application.run_polling()
