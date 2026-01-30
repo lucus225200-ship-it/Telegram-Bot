@@ -7,6 +7,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotComm
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, CallbackQueryHandler, MessageHandler, filters
 
 # --- CONFIG ---
+# Admin Bot Token
 ADMIN_BOT_TOKEN = "8324982217:AAEQ85YcMran1X0UEirIISV831FR1jrzXG4"
 ALLOWED_ADMINS = [8324982217]  
 
@@ -24,15 +25,14 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS chats (id TEXT PRIMARY KEY, title TEXT, link TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS stats (type TEXT PRIMARY KEY, count INTEGER DEFAULT 0)''')
     
-    # ပုံသေ Setting များ (Chat, Comment, Reaction, Protect အားလုံးပါဝင်သည်)
+    # ပုံသေ Setting များ
     default_settings = [
         ('language', 'my'),
         ('bot_status', 'ON'),
-        ('banned_words', '[]'),
         ('ch_chat', 'ON'), ('gp_chat', 'ON'),           
         ('ch_comment', 'ON'), ('gp_comment', 'ON'),     
         ('ch_reaction', 'ON'), ('gp_reaction', 'ON'),   
-        ('ch_protect', 'OFF'), ('gp_protect', 'OFF')    # SS/RC/Copy/FW Protect
+        ('ch_protect', 'OFF'), ('gp_protect', 'OFF')
     ]
     for key, val in default_settings:
         c.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", (key, val))
@@ -57,87 +57,39 @@ def toggle_db_setting(key):
     conn.close()
     return new_val
 
-# --- MENU ICON SETUP ---
-async def set_commands(application):
-    commands = [
-        BotCommand("start", "ပင်မစာမျက်နှာ"),
-        BotCommand("setting", "Control Panel (ဖွင့်/ပိတ်/ဘာသာစကား)"),
-        BotCommand("data", "Real-time Statistics (21 Graphs)"),
-        BotCommand("chat", "Manage Groups/Channels (Link +)"),
-        BotCommand("post", "Post Scheduler (Auto-delete/Forever)")
-    ]
-    await application.bot.set_my_commands(commands)
-
-# --- COMMAND HANDLERS ---
-
-async def admin_setting(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/setting - Main Menu"""
-    if update.effective_user.id not in ALLOWED_ADMINS: return
-    
-    keyboard = [
+# --- MENU BUILDERS ---
+def get_main_keyboard():
+    return InlineKeyboardMarkup([
         [InlineKeyboardButton("📢 Channel Settings", callback_data="menu_ch"),
          InlineKeyboardButton("👥 Group Settings", callback_data="menu_gp")],
-        [InlineKeyboardButton("🌍 Change Language", callback_data="set_lang_menu")],
-        [InlineKeyboardButton("🚫 Banned Words (+/-)", callback_data="manage_banned")],
-        [InlineKeyboardButton("🤖 Bot Status: " + get_setting('bot_status'), callback_data="toggle_bot_main")],
+        [InlineKeyboardButton("🌍 Language: " + get_setting('language').upper(), callback_data="toggle_lang")],
+        [InlineKeyboardButton("🤖 Bot Status: " + get_setting('bot_status'), callback_data="tog_bot_status")],
         [InlineKeyboardButton("❌ Close", callback_data="close")]
-    ]
-    await update.message.reply_text("⚙️ *Professional Admin Dashboard*\n\nပြုပြင်လိုသည့် ကဏ္ဍကို ရွေးချယ်ပါ။", 
-                                   reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+    ])
 
-async def admin_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/data - 21 Statistics List"""
-    if update.effective_user.id not in ALLOWED_ADMINS: return
-    metrics = [
-        "Daily Joined", "Daily Left", "Total Followers", "Daily Total Members",
-        "Daily Mute", "Daily Unmute", "Traffic-Invite", "Traffic-Search",
-        "Traffic-PM", "Traffic-Group", "Traffic-Channel", "Daily Views",
-        "Daily Shares", "Daily Positive", "Daily Neutral", "Daily Negative",
-        "Daily Deletes", "Daily Warns", "Daily Kicks", "Daily Bans", "Active Members"
-    ]
-    text = "📊 *Live Real-time Data (21 Metrics)*\n" + "—"*15 + "\n"
-    for m in metrics: text += f"• {m}: `0`\n"
-    
-    await update.message.reply_text(text, parse_mode='Markdown')
-
-async def admin_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/chat - Manage Links"""
-    if update.effective_user.id not in ALLOWED_ADMINS: return
-    keyboard = [[InlineKeyboardButton("➕ Add New Group/Channel Link", callback_data="add_chat")]]
-    await update.message.reply_text("💬 *Group & Channel Management*\n\nလက်ရှိချိတ်ဆက်ထားသော စာရင်းများ...", 
-                                   reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
-
-async def admin_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/post - Schedule Options"""
-    if update.effective_user.id not in ALLOWED_ADMINS: return
-    keyboard = [
-        [InlineKeyboardButton("⏰ Set Time", callback_data="set_time")],
-        [InlineKeyboardButton("✅ Keep Forever", callback_data="mode_forever"),
-         InlineKeyboardButton("🗑 Auto Delete", callback_data="mode_delete")]
-    ]
-    await update.message.reply_text("📝 *Post & Movie Scheduler*\n\nတင်မည့်ပုံစံကို ရွေးချယ်ပါ။", 
-                                   reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
-
-# --- SUB-MENU FUNCTIONS ---
-async def show_channel_settings(query):
-    kb = [
+def get_channel_keyboard():
+    return InlineKeyboardMarkup([
         [InlineKeyboardButton(f"Chat: {get_setting('ch_chat')}", callback_data="tog_ch_chat"),
          InlineKeyboardButton(f"Comment: {get_setting('ch_comment')}", callback_data="tog_ch_comment")],
         [InlineKeyboardButton(f"Reaction: {get_setting('ch_reaction')}", callback_data="tog_ch_reaction"),
-         InlineKeyboardButton(f"Protect (SS/RC/FW): {get_setting('ch_protect')}", callback_data="tog_ch_protect")],
+         InlineKeyboardButton(f"Protect: {get_setting('ch_protect')}", callback_data="tog_ch_protect")],
         [InlineKeyboardButton("🔙 Back", callback_data="admin_main")]
-    ]
-    await query.edit_message_text("📢 *Channel Individual Settings*", reply_markup=InlineKeyboardMarkup(kb), parse_mode='Markdown')
+    ])
 
-async def show_group_settings(query):
-    kb = [
+def get_group_keyboard():
+    return InlineKeyboardMarkup([
         [InlineKeyboardButton(f"Chat: {get_setting('gp_chat')}", callback_data="tog_gp_chat"),
          InlineKeyboardButton(f"Comment: {get_setting('gp_comment')}", callback_data="tog_gp_comment")],
         [InlineKeyboardButton(f"Reaction: {get_setting('gp_reaction')}", callback_data="tog_gp_reaction"),
-         InlineKeyboardButton(f"Protect (SS/RC/FW): {get_setting('gp_protect')}", callback_data="tog_gp_protect")],
+         InlineKeyboardButton(f"Protect: {get_setting('gp_protect')}", callback_data="tog_gp_protect")],
         [InlineKeyboardButton("🔙 Back", callback_data="admin_main")]
-    ]
-    await query.edit_message_text("👥 *Group Individual Settings*", reply_markup=InlineKeyboardMarkup(kb), parse_mode='Markdown')
+    ])
+
+# --- COMMAND HANDLERS ---
+async def admin_setting(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id not in ALLOWED_ADMINS: return
+    await update.message.reply_text("⚙️ *Admin Control Panel*", 
+                                   reply_markup=get_main_keyboard(), parse_mode='Markdown')
 
 # --- CALLBACK HANDLER ---
 async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -145,48 +97,36 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data
     await query.answer()
     
+    # Navigation
     if data == "menu_ch":
-        await show_channel_settings(query)
-
+        await query.edit_message_text("📢 *Channel Individual Settings*", reply_markup=get_channel_keyboard(), parse_mode='Markdown')
     elif data == "menu_gp":
-        await show_group_settings(query)
-
+        await query.edit_message_text("👥 *Group Individual Settings*", reply_markup=get_group_keyboard(), parse_mode='Markdown')
     elif data == "admin_main":
-        keyboard = [
-            [InlineKeyboardButton("📢 Channel Settings", callback_data="menu_ch"),
-             InlineKeyboardButton("👥 Group Settings", callback_data="menu_gp")],
-            [InlineKeyboardButton("🌍 Change Language", callback_data="set_lang_menu")],
-            [InlineKeyboardButton("🚫 Banned Words (+/-)", callback_data="manage_banned")],
-            [InlineKeyboardButton("🤖 Bot Status: " + get_setting('bot_status'), callback_data="toggle_bot_main")],
-            [InlineKeyboardButton("❌ Close", callback_data="close")]
-        ]
-        await query.edit_message_text("⚙️ *Professional Admin Dashboard*", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
-
+        await query.edit_message_text("⚙️ *Admin Control Panel*", reply_markup=get_main_keyboard(), parse_mode='Markdown')
+    
+    # Toggle Logic
     elif data.startswith("tog_"):
         key = data.replace("tog_", "")
         toggle_db_setting(key)
-        # Refresh the correct sub-menu
+        
+        # Refresh the current view based on key
         if key.startswith("ch_"):
-            await show_channel_settings(query)
+            await query.edit_message_reply_markup(reply_markup=get_channel_keyboard())
         elif key.startswith("gp_"):
-            await show_group_settings(query)
+            await query.edit_message_reply_markup(reply_markup=get_group_keyboard())
         elif key == "bot_status":
-            # Refresh main menu if bot status toggled from main
-            await handle_callbacks(update, context)
-
-    elif data == "toggle_bot_main":
-        toggle_db_setting('bot_status')
-        # Refresh main menu
-        keyboard = [
-            [InlineKeyboardButton("📢 Channel Settings", callback_data="menu_ch"),
-             InlineKeyboardButton("👥 Group Settings", callback_data="menu_gp")],
-            [InlineKeyboardButton("🌍 Change Language", callback_data="set_lang_menu")],
-            [InlineKeyboardButton("🚫 Banned Words (+/-)", callback_data="manage_banned")],
-            [InlineKeyboardButton("🤖 Bot Status: " + get_setting('bot_status'), callback_data="toggle_bot_main")],
-            [InlineKeyboardButton("❌ Close", callback_data="close")]
-        ]
-        await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(keyboard))
-
+            await query.edit_message_reply_markup(reply_markup=get_main_keyboard())
+            
+    elif data == "toggle_lang":
+        curr = get_setting('language')
+        new_lang = "en" if curr == "my" else "my"
+        conn = sqlite3.connect(DB_PATH)
+        conn.execute("UPDATE settings SET value=? WHERE key='language'", (new_lang,))
+        conn.commit()
+        conn.close()
+        await query.edit_message_reply_markup(reply_markup=get_main_keyboard())
+        
     elif data == "close":
         await query.delete_message()
 
@@ -194,22 +134,10 @@ if __name__ == '__main__':
     init_db()
     application = ApplicationBuilder().token(ADMIN_BOT_TOKEN).build()
     
-    # Register Commands
     application.add_handler(CommandHandler('setting', admin_setting))
-    application.add_handler(CommandHandler('data', admin_data))
-    application.add_handler(CommandHandler('chat', admin_chat))
-    application.add_handler(CommandHandler('post', admin_post))
     application.add_handler(CommandHandler('start', admin_setting))
-    
     application.add_handler(CallbackQueryHandler(handle_callbacks))
     
-    # Set Menu Icon Commands
-    try:
-        loop = asyncio.get_event_loop()
-        loop.run_until_complete(set_commands(application))
-    except:
-        pass
-
-    print("Admin Bot is fully operational and watching for updates...")
-    # drop_pending_updates helps avoid Conflict errors on restart
+    print("Admin Bot is active...")
+    # drop_pending_updates=True က Conflict Error တွေကို အလိုအလျောက် ရှင်းလင်းပေးပါတယ်
     application.run_polling(drop_pending_updates=True)
