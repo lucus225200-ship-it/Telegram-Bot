@@ -91,7 +91,9 @@ def get_myanmar_date(date_str):
 
 # --- BUTTON BUILDER ---
 def build_movie_buttons(category_key):
-    if category_key == 'new_movies':
+    is_new_movies = (category_key == 'new_movies')
+    
+    if is_new_movies:
         movies = persistent_data.get('new_movies_list', [])
         header_text = CATEGORY_HEADERS['new_movies'][1]
     else:
@@ -104,9 +106,14 @@ def build_movie_buttons(category_key):
     else:
         caption = f"{header_text}\n\nကြည့်ရှုလိုသည့် ဇာတ်ကားကို နှိပ်ပါ 👇"
         for movie in movies:
-            time_label = get_myanmar_date(movie['date'])
-            # 🎬 ခေါင်းစဉ် (ရက်စွဲ) ကို Button တစ်ခုတည်းမှာ ပေါင်းပြခြင်း
-            button_text = f"🎬 {movie['title']} {time_label}"
+            if is_new_movies:
+                # ဇာတ်ကားအသစ်များထဲမှာပဲ ရက်စွဲထည့်မယ်
+                time_label = get_myanmar_date(movie['date'])
+                button_text = f"🎬 {movie['title']} {time_label}"
+            else:
+                # ကျန်တဲ့ အမျိုးအစားတွေမှာ ခေါင်းစဉ်ပဲ ထည့်မယ်
+                button_text = f"🎬 {movie['title']}"
+            
             keyboard.append([InlineKeyboardButton(button_text, url=movie['link'])])
 
     keyboard.append([InlineKeyboardButton("🔙 မူလစာမျက်နှာသို့", callback_data='main_menu')])
