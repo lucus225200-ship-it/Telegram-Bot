@@ -41,20 +41,27 @@ def init_db():
     conn.close()
 
 def get_setting(key):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("SELECT value FROM settings WHERE key=?", (key,))
-    res = c.fetchone()
-    conn.close()
-    return res[0] if res else "OFF"
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute("SELECT value FROM settings WHERE key=?", (key,))
+        res = c.fetchone()
+        conn.close()
+        return res[0] if res else "OFF"
+    except Exception as e:
+        logger.error(f"Error getting setting {key}: {e}")
+        return "OFF"
 
 def toggle_db_setting(key):
     current = get_setting(key)
     new_val = "OFF" if current == "ON" else "ON"
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute("UPDATE settings SET value=? WHERE key=?", (new_val, key))
-    conn.commit()
-    conn.close()
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.execute("UPDATE settings SET value=? WHERE key=?", (new_val, key))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.error(f"Error toggling setting {key}: {e}")
     return new_val
 
 # --- MENU BUILDERS ---
@@ -91,6 +98,10 @@ async def admin_setting(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("⚙️ *Admin Control Panel*", 
                                    reply_markup=get_main_keyboard(), parse_mode='Markdown')
 
+# --- ERROR HANDLER ---
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    logger.error(f"Exception while handling an update: {context.error}")
+
 # --- CALLBACK HANDLER ---
 async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -121,10 +132,13 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "toggle_lang":
         curr = get_setting('language')
         new_lang = "en" if curr == "my" else "my"
-        conn = sqlite3.connect(DB_PATH)
-        conn.execute("UPDATE settings SET value=? WHERE key='language'", (new_lang,))
-        conn.commit()
-        conn.close()
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            conn.execute("UPDATE settings SET value=? WHERE key='language'", (new_lang,))
+            conn.commit()
+            conn.close()
+        except:
+            pass
         await query.edit_message_reply_markup(reply_markup=get_main_keyboard())
         
     elif data == "close":
@@ -138,11 +152,17 @@ if __name__ == '__main__':
     application.add_handler(CommandHandler('start', admin_setting))
     application.add_handler(CallbackQueryHandler(handle_callbacks))
     
+    # Error Handler ထည့်သွင်းခြင်း
+    application.add_error_handler(error_handler)
+    
     print("Admin Bot is active and running...")
     
-    # allowed_updates=Update.ALL_TYPES နှင့် drop_pending_updates=True ပေါင်းစပ်လိုက်ခြင်းဖြင့် 
-    # Bot Connection ကို ပိုမိုတည်ငြိမ်စေပြီး Conflict ဖြစ်မှုကို အမြင့်ဆုံးကာကွယ်ပေးပါတယ်။
+    # run_polling တွင် timeout ထပ်ထည့်ခြင်းဖြင့် connection ပြတ်တောက်မှုကို လျှော့ချပါသည်
     application.run_polling(
         allowed_updates=Update.ALL_TYPES,
-        drop_pending_updates=True
+        drop_pending_updates=True,
+        read_timeout=30,
+        write_timeout=30,
+        connect_timeout=30,
+        pool_timeout=30
     )
