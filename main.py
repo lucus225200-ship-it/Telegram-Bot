@@ -1,6 +1,7 @@
 import os
 import json
 import logging
+import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, CallbackQueryHandler, MessageHandler, filters
 
@@ -30,13 +31,18 @@ def load_data():
         try:
             with open(DATA_FILE, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-                for key in list(HASHTAG_MAP.values()) + ["new_movies"]:
-                    if key not in data:
-                        data[key] = []
+                # Ensure new data structures exist
+                if 'enhanced_data' not in data:
+                    data['enhanced_data'] = {v: [] for v in HASHTAG_MAP.values()}
+                if 'new_movies_list' not in data:
+                    data['new_movies_list'] = []
                 return data
         except Exception as e:
             logger.error(f"Error loading data: {e}")
-    return {key: [] for key in HASHTAG_MAP.values()} | {"new_movies": []}
+    return {
+        'enhanced_data': {v: [] for v in HASHTAG_MAP.values()},
+        'new_movies_list': []
+    }
 
 def save_data(data):
     try:
@@ -65,62 +71,100 @@ CATEGORY_HEADERS = {
     'new_movies': ("poster.jpg", "🆕 *ဇာတ်ကားအသစ်များ*")
 }
 
-def get_drama_text(category_key):
-    img, header = CATEGORY_HEADERS.get(category_key, ("poster.jpg", "Unknown"))
-    titles = persistent_data.get(category_key, [])
-    if not titles:
-        return img, f"{header}\n\n⚠️ ဇာတ်ကားများ မရှိသေးပါ။"
-    
-    reversed_titles = list(reversed(titles))
-    list_text = "\n".join([f"{i+1}. {title}" for i, title in enumerate(reversed_titles)])
-    return img, f"{header}\n\n{list_text}"
+# --- DATE HELPER ---
+def get_myanmar_date(date_str):
+    try:
+        post_date = datetime.datetime.strptime(date_str, "%Y-%m-%d").date()
+        now = datetime.datetime.now().date()
+        diff = (now - post_date).days
+        
+        if diff == 0:
+            return "(ယနေ့)"
+        elif diff == 1:
+            return "(မနေ့က)"
+        else:
+            myan_numbers = {'0':'၀', '1':'၁', '2':'၂', '3':'၃', '4':'၄', '5':'၅', '6':'၆', '7':'၇', '8':'၈', '9':'၉'}
+            diff_str = str(diff)
+            myan_diff = "".join([myan_numbers.get(d, d) for d in diff_str])
+            return f"({myan_diff} ရက်)"
+    except:
+        return ""
 
+# --- BUTTON BUILDER (Rule #1, #2, #3) ---
+def build_movie_buttons(category_key):
+    if category_key == 'new_movies':
+        movies = persistent_data.get('new_movies_list', [])
+        header_text = CATEGORY_HEADERS['new_movies'][1]
+    else:
+        movies = persistent_data.get('enhanced_data', {}).get(category_key, [])
+        header_text = CATEGORY_HEADERS.get(category_key, ("poster.jpg", "Unknown"))[1]
+
+    keyboard = []
+    if not movies:
+        caption = f"{header_text}\n\n⚠️ ဇာတ်ကားများ မရှိသေးပါ။"
+    else:
+        caption = f"{header_text}\n\nကြည့်ရှုလိုသည့် ဇာတ်ကားကို နှိပ်ပါ 👇"
+        for movie in movies:
+            # Rule: One title = One button with Jump Link
+            keyboard.append([InlineKeyboardButton(f"🎬 {movie['title']}", url=movie['link'])])
+            # Rule: Non-clickable time label underneath
+            time_label = get_myanmar_date(movie['date'])
+            keyboard.append([InlineKeyboardButton(time_label, callback_data="none")])
+
+    keyboard.append([InlineKeyboardButton("🔙 မူလစာမျက်နှာသို့", callback_data='main_menu')])
+    return InlineKeyboardMarkup(keyboard), caption
+
+# --- CHANNEL HANDLER (Rule #1, #2) ---
 async def channel_post_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    logger.info("--- CHANNEL POST RECEIVED ---")
-    
-    # Check for new posts or edits
     post = update.channel_post or update.edited_channel_post
-    if not post:
-        return
+    if not post: return
 
-    # Text can be in .text or in .caption (if photo is sent)
     text = post.text if post.text else post.caption
-    if not text:
-        return
+    if not text: return
 
-    logger.info(f"PROCESSING TEXT: {text[:50]}...")
-    
     lines = [line.strip() for line in text.split('\n') if line.strip()]
-    
     found_category = None
     movie_title = None
-    
+
     for i, line in enumerate(lines):
         for hashtag, cat_key in HASHTAG_MAP.items():
             if hashtag.lower() in line.lower():
                 found_category = cat_key
-                # Use the line immediately following the hashtag as the title
                 if i + 1 < len(lines):
-                    movie_title = lines[i+1]
+                    movie_title = lines[i+1] # First line after hashtag
                 break
-        if found_category:
-            break
-            
+        if found_category: break
+
     if found_category and movie_title:
-        # Add to category if not already there
-        if movie_title not in persistent_data[found_category]:
-            persistent_data[found_category].append(movie_title)
-            logger.info(f"SUCCESS: Added '{movie_title}' to '{found_category}'")
+        # Generate Jump Link
+        if post.chat.username:
+            post_link = f"https://t.me/{post.chat.username}/{post.message_id}"
+        else:
+            chat_id_str = str(post.chat.id).replace("-100", "")
+            post_link = f"https://t.me/c/{chat_id_str}/{post.message_id}"
+
+        movie_entry = {
+            "title": movie_title,
+            "link": post_link,
+            "date": datetime.datetime.now().strftime("%Y-%m-%d")
+        }
+
+        # Update Category List (Newest at Top)
+        cat_list = persistent_data['enhanced_data'][found_category]
+        # Remove if exists to re-insert at top
+        persistent_data['enhanced_data'][found_category] = [m for m in cat_list if m['title'] != movie_title]
+        persistent_data['enhanced_data'][found_category].insert(0, movie_entry)
+
+        # Update New Movies (FIFO - Max 5)
+        new_list = persistent_data['new_movies_list']
+        persistent_data['new_movies_list'] = [m for m in new_list if m['title'] != movie_title]
+        persistent_data['new_movies_list'].insert(0, movie_entry)
         
-        # Add to new movies list
-        if movie_title not in persistent_data['new_movies']:
-            persistent_data['new_movies'].insert(0, movie_title)
-            if len(persistent_data['new_movies']) > 50:
-                persistent_data['new_movies'].pop()
-                
+        if len(persistent_data['new_movies_list']) > 5:
+            persistent_data['new_movies_list'].pop() # Remove oldest
+
         save_data(persistent_data)
-    else:
-        logger.warning(f"PARSING FAILED: Cat={found_category}, Title={movie_title}")
+        logger.info(f"Added to DB: {movie_title}")
 
 def get_main_keyboard():
     return InlineKeyboardMarkup([
@@ -164,19 +208,19 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
         return
         
-    if data in CATEGORY_HEADERS:
-        image_name, response_text = get_drama_text(data)
+    if data in CATEGORY_HEADERS or data == 'new_movies':
+        reply_markup, response_text = build_movie_buttons(data)
+        image_name = CATEGORY_HEADERS.get(data, ("poster.jpg", ""))[0]
         image_path = get_image_path(image_name)
-        back_keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 မူလစာမျက်နှာသို့", callback_data='main_menu')]])
         
         if os.path.exists(image_path):
             with open(image_path, 'rb') as photo:
                 await query.edit_message_media(
                     media=InputMediaPhoto(media=photo, caption=response_text, parse_mode='Markdown'),
-                    reply_markup=back_keyboard
+                    reply_markup=reply_markup
                 )
         else:
-            await query.edit_message_caption(caption=response_text, reply_markup=back_keyboard, parse_mode='Markdown')
+            await query.edit_message_caption(caption=response_text, reply_markup=reply_markup, parse_mode='Markdown')
 
 if __name__ == '__main__':
     TOKEN = "8586583701:AAE-ZVQJjw0mqKl0ePcM9QGbnVv4gLbm2fE"
@@ -186,13 +230,10 @@ if __name__ == '__main__':
     application.add_handler(CommandHandler('start', start))
     application.add_handler(CallbackQueryHandler(button_handler))
     
-    # Fix: Corrected filter to handle channel posts and edits properly
-    # Using filters.ChatType.CHANNEL ensures we listen to the channel the bot is in
     application.add_handler(MessageHandler(
         filters.ChatType.CHANNEL & (filters.TEXT | filters.CAPTION), 
         channel_post_handler
     ))
     
-    logger.info("Bot is starting and polling for updates...")
-    # allowed_updates=Update.ALL_TYPES is critical for channel support
+    logger.info("Bot is starting with FIFO and Jump Link logic...")
     application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
