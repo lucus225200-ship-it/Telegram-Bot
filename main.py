@@ -105,7 +105,7 @@ def build_movie_buttons(category_key):
         caption = f"{header_text}\n\nကြည့်ရှုလိုသည့် ဇာတ်ကားကို နှိပ်ပါ 👇"
         for movie in movies:
             time_label = get_myanmar_date(movie['date'])
-            # 🎬 ခေါင်းစဉ် (ရက်စွဲ) ကို Button တစ်ခုတည်းမှာ ပေါင်းလိုက်ခြင်း
+            # 🎬 ခေါင်းစဉ် (ရက်စွဲ) ကို Button တစ်ခုတည်းမှာ ပေါင်းပြခြင်း
             button_text = f"🎬 {movie['title']} {time_label}"
             keyboard.append([InlineKeyboardButton(button_text, url=movie['link'])])
 
