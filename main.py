@@ -9,7 +9,6 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 
 # --- CONSTANTS & DATABASE PATH ---
 DATA_FILE = "bot_data.json"
-# သင့် Channel Username ကို ဒီမှာ သေချာအောင် ပြန်စစ်ပေးပါ
 CHANNEL_USERNAME = "@Arbwrshotrtdrama"
 
 # --- DATABASE LOGIC ---
@@ -31,7 +30,6 @@ def load_data():
         try:
             with open(DATA_FILE, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-                # Ensure all keys exist
                 for key in list(HASHTAG_MAP.values()) + ["new_movies"]:
                     if key not in data:
                         data[key] = []
@@ -47,7 +45,6 @@ def save_data(data):
     except Exception as e:
         logging.error(f"Error saving data: {e}")
 
-# Global data variable
 persistent_data = load_data()
 
 def get_image_path(image_name):
@@ -73,20 +70,18 @@ def get_drama_text(category_key):
     titles = persistent_data.get(category_key, [])
     if not titles:
         return img, f"{header}\n\n⚠️ ဇာတ်ကားများ မရှိသေးပါ။"
-    
-    # ပြသတဲ့အခါ နောက်ဆုံးတင်တဲ့ကားကို အပေါ်ဆုံးကပြမယ်
     reversed_titles = list(reversed(titles))
     list_text = "\n".join([f"{i+1}. {title}" for i, title in enumerate(reversed_titles)])
     return img, f"{header}\n\n{list_text}"
 
 async def channel_post_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Channel က Post များကို ဖမ်းယူပြီး Data သိမ်းဆည်းသောအပိုင်း"""
     post = update.channel_post
     if not post or not post.text:
         return
 
     text = post.text
-    logging.info(f"New channel post received: {text[:50]}...")
+    logging.info(f"RECEIVED POST: {text[:100]}") # Debug Log
+    
     lines = [line.strip() for line in text.split('\n') if line.strip()]
     
     found_category = None
@@ -96,7 +91,6 @@ async def channel_post_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         for hashtag, cat_key in HASHTAG_MAP.items():
             if hashtag.lower() in line.lower():
                 found_category = cat_key
-                # Hashtag ပါတဲ့လိုင်းရဲ့ အောက်တစ်ကြောင်းကို ဇာတ်ကားနာမည်လို့ ယူဆမယ်
                 if i + 1 < len(lines):
                     movie_title = lines[i+1]
                 break
@@ -104,18 +98,18 @@ async def channel_post_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             break
             
     if found_category and movie_title:
-        # Category ထဲ ထည့်မယ်
         if movie_title not in persistent_data[found_category]:
             persistent_data[found_category].append(movie_title)
+            logging.info(f"Added to category {found_category}: {movie_title}")
         
-        # ဇာတ်ကားအသစ် (၁၀ ကား) စာရင်းထဲ ထည့်မယ်
         if movie_title not in persistent_data['new_movies']:
             persistent_data['new_movies'].insert(0, movie_title)
             if len(persistent_data['new_movies']) > 10:
                 persistent_data['new_movies'].pop()
                 
         save_data(persistent_data)
-        logging.info(f"Successfully saved: {movie_title} to {found_category}")
+    else:
+        logging.warning("Post received but no matching hashtag or title found.")
 
 def get_main_keyboard():
     return InlineKeyboardMarkup([
@@ -174,16 +168,15 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_caption(caption=response_text, reply_markup=back_keyboard, parse_mode='Markdown')
 
 if __name__ == '__main__':
-    # သင်ပေးပို့လိုက်သော Token အသစ်
-    TOKEN = "8586583701:AAEIfryRol8G0v-AyvLohI-eaDxk5yYHcTs"
+    # အသစ်ပေးပို့လိုက်သော Token
+    TOKEN = "8586583701:AAE-ZVQJjw0mqKl0ePcM9QGbnVv4gLbm2fE"
     
     application = ApplicationBuilder().token(TOKEN).build()
     
-    # Handlers
     application.add_handler(CommandHandler('start', start))
     application.add_handler(CallbackQueryHandler(button_handler))
-    # Channel မှ စာသားများကိုသာ ဖတ်ရန် Filter ထားသည်
+    # Channel Post များအတွက် Handler
     application.add_handler(MessageHandler(filters.ChatType.CHANNEL & filters.TEXT, channel_post_handler))
     
-    print("Channel Bot is online and listening with the new token...")
+    print(f"Bot is running with the new token...")
     application.run_polling(drop_pending_updates=True)
