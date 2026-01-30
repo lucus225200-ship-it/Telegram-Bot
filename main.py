@@ -158,8 +158,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_caption(caption=response_text, reply_markup=back_keyboard, parse_mode='Markdown')
 
 if __name__ == '__main__':
-    # !!! အရေးကြီးသည် - @BotFather ထံမှရသော Bot အသစ်၏ Token ကို အောက်ပါနေရာတွင် ထည့်ပါ
-    NEW_BOT_TOKEN = "ဘော့အသစ်၏_TOKEN_ကို_ဒီမှာထည့်ပါ"
+    # Updated Token for Channel Bot
+    NEW_BOT_TOKEN = "8324982217:AAGu__tnwurpJ5bdigrFJGfYXhvZcwQ8W3c"
     
     application = ApplicationBuilder().token(NEW_BOT_TOKEN).build()
     
@@ -168,7 +168,7 @@ if __name__ == '__main__':
     application.add_handler(CallbackQueryHandler(button_handler))
     application.add_handler(MessageHandler(filters.ChatType.CHANNEL, channel_post_handler))
     
-    print("Channel Bot is online and listening...")
+    print("Channel Bot is online and listening with the new token...")
     
-    # drop_pending_updates=True က အဟောင်းများကို ရှင်းပေးပါလိမ့်မည်။
+    # drop_pending_updates=True က အဟောင်းများကို ရှင်းပေးပါလိမ့်မယ်။
     application.run_polling(drop_pending_updates=True)
