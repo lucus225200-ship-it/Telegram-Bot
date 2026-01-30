@@ -5,8 +5,8 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, CallbackQueryHandler
 
 # --- CONFIG ---
-# သင်ပေးပို့ထားသော Admin Token
-ADMIN_BOT_TOKEN = "8324982217:AAEdwitmT2HlCyt3MsKErg_fUk2xXFDmUj0"
+# သင်ပေးပို့ထားသော Admin Token အသစ်
+ADMIN_BOT_TOKEN = "8324982217:AAGnEnHz-n6XV6ef0MBE-rMyWqVbbblQBEk"
 
 # Admin အဖြစ်အသုံးပြုခွင့်ရှိသူများ၏ Telegram ID (ဒီနေရာမှာ သင့် ID ကို ထည့်ပါ)
 ALLOWED_ADMINS = [8324982217, 12345678]  
@@ -120,5 +120,5 @@ if __name__ == '__main__':
     application.add_handler(CallbackQueryHandler(stats_handler, pattern='show_stats'))
     application.add_handler(CallbackQueryHandler(main_menu_callback, pattern='admin_main'))
     
-    print("Admin Bot is running...")
+    print("Admin Bot is running with new token...")
     application.run_polling()
