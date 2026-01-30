@@ -227,7 +227,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_caption(caption=response_text, reply_markup=reply_markup, parse_mode='Markdown')
 
 if __name__ == '__main__':
-    TOKEN = "8586583701:AAE-ZVQJjw0mqKl0ePcM9QGbnVv4gLbm2fE"
+    TOKEN = "8586583701:AAEq1mXbcqHHTY-4d7PilXUsVGVQbNOncC4"
     application = ApplicationBuilder().token(TOKEN).build()
     application.add_handler(CommandHandler('start', start))
     application.add_handler(CallbackQueryHandler(button_handler))
