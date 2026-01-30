@@ -1,33 +1,121 @@
 import os
+import json
+import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, CallbackQueryHandler
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, CallbackQueryHandler, MessageHandler, filters
 
-# Arbwr Short Drama Channel Bot Script
-# ပုံများကို Memory ထဲတွင် ကြိုတင်သိမ်းဆည်းထားခြင်းဖြင့် ပိုမိုမြန်ဆန်စေပါသည်။
+# --- CONFIGURATION & LOGGING ---
+# Error များကို console တွင် ကြည့်ရှုနိုင်ရန် log ဖွင့်ထားခြင်း
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
-# ပုံလမ်းကြောင်း ရယူရန် Function
+# --- CONSTANTS & DATABASE PATH ---
+DATA_FILE = "bot_data.json" # ဇာတ်ကားစာရင်းများ သိမ်းဆည်းမည့်ဖိုင်
+CHANNEL_ID = "@Arbwrshotrtdrama" # စောင့်ကြည့်ရမည့် Channel ID
+
+# --- DATABASE LOGIC (Rule 1, 2 & Stability) ---
+# Channel Post ထဲမှ Hashtag ကိုကြည့်ပြီး Category ခွဲခြားရန် map လုပ်ခြင်း
+HASHTAG_MAP = {
+    '#romance': 'love',
+    '#family': 'family',
+    '#palace': 'palace',
+    '#ceo': 'ceo',
+    '#action': 'action',
+    '#revenge': 'revenge',
+    '#life': 'life',
+    '#thriller': 'thriller',
+    '#fantasy': 'fantasy',
+    '#comedy': 'comedy'
+}
+
+def load_data():
+    """Load movie lists from JSON file to ensure stability."""
+    if os.path.exists(DATA_FILE):
+        try:
+            with open(DATA_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except:
+            pass
+    # ဖိုင်မရှိသေးပါက အလွတ်ဖြင့် စတင်မည်
+    return {key: [] for key in HASHTAG_MAP.values()} | {"new_movies": []}
+
+def save_data(data):
+    """Save movie lists to JSON file."""
+    with open(DATA_FILE, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
+
+# Persistent data ကို စတင်ယူခြင်း
+persistent_data = load_data()
+
+# --- PATH FUNCTIONS ---
 def get_image_path(image_name):
     base_dir = os.path.dirname(os.path.abspath(__file__))
     return os.path.join(base_dir, image_name)
 
-
-
-# ဇာတ်လမ်းဒေတာများနှင့် ပုံအမည်များ
-DRAMA_DATA = {
-    'love': ("Romance.jpg", "💖 *အချစ်ဇာတ်လမ်းများ*\n\n1. Boss ရဲ့လျှို့ဝှက်ချစ်သူ\n2. ကံကြမ္မာပေးတဲ့ အချစ်\n3. အိမ်နီးချင်းဥက္ကဌကြီး"),
-    'family': ("Family.jpg", "🏠 *အိမ်ထောင်ရေးဇာတ်လမ်းများ*\n\n1. ပြန်လည်ဆုံစည်းခြင်း\n2. ယောက္ခမနှင့် ချွေးမ\n3. အိမ်ထောင်ရှင်တို့ရဲ့ လျှို့ဝှက်ချက်"),
-    'palace': ("Royal.jpg", "👑 *နန်းတွင်းဇာတ်လမ်းများ*\n\n1. နန်းတွင်းပရိယာယ်\n2. မိဖုရားကြီးရဲ့ ကလဲ့စား\n3. မင်းသားနှင့် မိန်းကလေး"),
-    'ceo': ("Workplace.jpg", "🏢 *ကုမ္ပဏီဥက္ကဌဇာတ်လမ်းများ*\n\n1. Cold Boss\n2. CEO ရဲ့ဇနီးအတု\n3. ကျွန်မရဲ့သူဌေးမင်း"),
-    'action': ("Action.jpg", "⚔️ *အက်ရှင်ဇာတ်လမ်းများ*\n\n1. ဓားသိုင်းလောက\n2. သူရဲကောင်းရဲ့ ခရီးစဉ်\n3. လက်စားချေသူ"),
-    'revenge': ("Betrayal.jpg", "🩸 *လက်စားချေခြင်းဇာတ်လမ်းများ*\n\n1. ပြန်လာသော ဘုရင်မ\n2. မျက်ရည်မရှိသော ကလဲ့စား\n3. သစ္စာဖောက်သူများ"),
-    'life': ("Life.jpg", "🎭 *ဘဝသရုပ်ဖော်ဇာတ်လမ်းများ*\n\n1. လောကဓံ\n2. မိခင်မေတ္တာ\n3. ရုန်းကန်ခြင်းများ"),
-    'thriller': ("Thriller.jpg", "🔪 *သည်းထိတ်ရင်ဖိုဇာတ်လမ်းများ*\n\n1. လျှို့ဝှက်လူသတ်သမား\n2. ပဟေဠိအိမ်ကြီး\n3. နောက်ယောင်ခံသူ"),
-    'fantasy': ("Deception.jpg", "🪄 *စိတ်ကူးယဉ်ဇာတ်လမ်းများ*\n\n1. နတ်ဘုရားတို့ရဲ့ စစ်ပွဲ\n2. အာကာသခရီးသည်\n3. မှော်ပညာရှင်"),
-    'comedy': ("Funny.jpg", "😂 *ဟာသဇာတ်လမ်းများ*\n\n1. သူငယ်ချင်းများ\n2. မင်္ဂလာဆောင်ဟာသ\n3. ရယ်စရာလူသား"),
-    'new_movies': ("poster.jpg", "🆕 *ဇာတ်ကားအသစ်များ*\n\n1. ဥက္ကဌကြီး၏ ချစ်သက်သေ (ယနေ့တင်)\n2. နန်းတွင်းကစားပွဲ (မနေ့ကတင်)\n3. ချစ်ခြင်းရဲ့ ကလဲ့စား (အသစ်)")
+# --- CATEGORY HEADERS ---
+# Category တစ်ခုစီ၏ ခေါင်းစဉ်နှင့် ပုံများကို သတ်မှတ်ခြင်း
+CATEGORY_HEADERS = {
+    'love': ("Romance.jpg", "💖 *အချစ်ဇာတ်လမ်းများ*"),
+    'family': ("Family.jpg", "🏠 *အိမ်ထောင်ရေးဇာတ်လမ်းများ*"),
+    'palace': ("Royal.jpg", "👑 *နန်းတွင်းဇာတ်လမ်းများ*"),
+    'ceo': ("Workplace.jpg", "🏢 *ကုမ္ပဏီဥက္ကဌဇာတ်လမ်းများ*"),
+    'action': ("Action.jpg", "⚔️ *အက်ရှင်ဇာတ်လမ်းများ*"),
+    'revenge': ("Betrayal.jpg", "🩸 *လက်စားချေခြင်းဇာတ်လမ်းများ*"),
+    'life': ("Life.jpg", "🎭 *ဘဝသရုပ်ဖော်ဇာတ်လမ်းများ*"),
+    'thriller': ("Thriller.jpg", "🔪 *သည်းထိတ်ရင်ဖိုဇာတ်လမ်းများ*"),
+    'fantasy': ("Deception.jpg", "🪄 *စိတ်ကူးယဉ်ဇာတ်လမ်းများ*"),
+    'comedy': ("Funny.jpg", "😂 *ဟာသဇာတ်လမ်းများ*"),
+    'new_movies': ("poster.jpg", "🆕 *ဇာတ်ကားအသစ်များ*")
 }
 
-# Main Menu Keyboard
+def get_drama_text(category_key):
+    """Generates display text. Shows placeholder if list is empty."""
+    img, header = CATEGORY_HEADERS.get(category_key, ("poster.jpg", "Unknown"))
+    titles = persistent_data.get(category_key, [])
+    
+    if not titles:
+        return img, f"{header}\n\n⚠️ ဇာတ်ကားများ မရှိသေးပါ။"
+    
+    list_text = "\n".join([f"{i+1}. {title}" for i, title in enumerate(titles)])
+    return img, f"{header}\n\n{list_text}"
+
+# --- AUTO-UPDATE LOGIC (Rule 1, 2 & 4) ---
+async def channel_post_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Channel post ထဲမှ hashtag နှင့် movie title ကို ရှာဖွေပြီး စာရင်းသွင်းပေးခြင်း"""
+    if not update.channel_post or not update.channel_post.text:
+        return
+
+    text = update.channel_post.text
+    lines = [line.strip() for line in text.split('\n') if line.strip()]
+    
+    found_category = None
+    movie_title = None
+
+    for i, line in enumerate(lines):
+        for hashtag, cat_key in HASHTAG_MAP.items():
+            if hashtag.lower() in line.lower():
+                found_category = cat_key
+                # Rule 4: Hashtag ပြီးလျှင် ပထမဆုံး စာကြောင်းကို Title အဖြစ်ယူခြင်း
+                if i + 1 < len(lines):
+                    movie_title = lines[i+1]
+                break
+        if found_category:
+            break
+
+    if found_category and movie_title:
+        # Rule 1: Category ထဲသို့ ပေါင်းထည့်ခြင်း (Append-only)
+        if movie_title not in persistent_data[found_category]:
+            persistent_data[found_category].append(movie_title)
+        
+        # Rule 2: New Movies list (FIFO - Max 5)
+        if movie_title not in persistent_data['new_movies']:
+            persistent_data['new_movies'].insert(0, movie_title)
+            if len(persistent_data['new_movies']) > 5:
+                persistent_data['new_movies'].pop()
+        
+        save_data(persistent_data)
+        logging.info(f"Auto-updated: {movie_title} added to {found_category}")
+
+# --- KEYBOARDS & COMMANDS ---
 def get_main_keyboard():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("💖 အချစ်ဇာတ်လမ်း", callback_data='love'), InlineKeyboardButton("🏠 အိမ်ထောင်ရေး", callback_data='family')],
@@ -35,7 +123,8 @@ def get_main_keyboard():
         [InlineKeyboardButton("⚔️ ရှေးဟောင်းအက်ရှင်", callback_data='action'), InlineKeyboardButton("🩸 လက်စားချေခြင်း", callback_data='revenge')],
         [InlineKeyboardButton("🎭 ဘဝသရုပ်ဖော်", callback_data='life'), InlineKeyboardButton("🔪 သည်းထိတ်ရင်ဖို", callback_data='thriller')],
         [InlineKeyboardButton("🪄 စိတ်ကူးယဉ်", callback_data='fantasy'), InlineKeyboardButton("😂 ဟာသဇာတ်လမ်း", callback_data='comedy')],
-        [InlineKeyboardButton("🆕 ဇာတ်ကားအသစ်များ", callback_data='new_movies'), InlineKeyboardButton("📢 Channel သို့ဝင်ရန်", url='https://t.me/arbwrdrama')]
+        [InlineKeyboardButton("🆕 ဇာတ်ကားအသစ်များ", callback_data='new_movies'), 
+         InlineKeyboardButton("📢 Channel သို့ဝင်ရန်", url='https://t.me/Arbwrshotrtdrama')] # Rule 3: Static URL
     ])
 
 WELCOME_TEXT = (
@@ -48,18 +137,15 @@ WELCOME_TEXT = (
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     image_path = get_image_path("poster.jpg")
     reply_markup = get_main_keyboard()
-
     if os.path.exists(image_path):
         with open(image_path, 'rb') as photo:
             await update.message.reply_photo(photo=photo, caption=WELCOME_TEXT, parse_mode='Markdown', reply_markup=reply_markup)
     else:
-        await update.message.reply_text(text=WELCOME_TEXT + "\n\n(Poster မတွေ့ပါ)", parse_mode='Markdown', reply_markup=reply_markup)
+        await update.message.reply_text(text=WELCOME_TEXT, parse_mode='Markdown', reply_markup=reply_markup)
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    # answer callback ချက်ချင်းလုပ်ခြင်းဖြင့် Loading အဝိုင်းလည်နေတာကို ပျောက်စေပါတယ်
     await query.answer()
-    
     data = query.data
     
     if data == 'main_menu':
@@ -72,10 +158,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
         return
 
-    if data in DRAMA_DATA:
-        image_name, response_text = DRAMA_DATA[data]
+    if data in CATEGORY_HEADERS:
+        image_name, response_text = get_drama_text(data)
         image_path = get_image_path(image_name)
-        
         back_keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 မူလစာမျက်နှာသို့", callback_data='main_menu')]])
 
         if os.path.exists(image_path):
@@ -85,8 +170,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     reply_markup=back_keyboard
                 )
         else:
-            await query.edit_message_caption(caption=response_text + "\n\n(ပုံမတွေ့ပါ)", reply_markup=back_keyboard, parse_mode='Markdown')
+            await query.edit_message_caption(caption=response_text, reply_markup=back_keyboard, parse_mode='Markdown')
 
+# --- MAIN RUNNER ---
 if __name__ == '__main__':
     TOKEN = "8586583701:AAEHh1zKDUx2Aeyo2eT-HX8V2_-tAJORAu4"
     application = ApplicationBuilder().token(TOKEN).build()
@@ -94,5 +180,8 @@ if __name__ == '__main__':
     application.add_handler(CommandHandler('start', start))
     application.add_handler(CallbackQueryHandler(button_handler))
     
-    print("Bot is running fast...")
+    # Channel မှ post များကို ဖတ်ရန် listener ထည့်သွင်းခြင်း
+    application.add_handler(MessageHandler(filters.ChatType.CHANNEL, channel_post_handler))
+    
+    print("Arbwr Bot is online and listening to Channel posts...")
     application.run_polling()
