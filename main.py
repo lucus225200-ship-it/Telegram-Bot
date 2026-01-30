@@ -9,8 +9,8 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 
 # --- CONSTANTS & DATABASE PATH ---
 DATA_FILE = "bot_data.json"
-# သင့် Channel ID ကို ဒီမှာ သေချာအောင် ပြန်စစ်ပေးပါ
-CHANNEL_ID = "@Arbwrshotrtdrama"
+# သင့် Channel Username ကို ဒီမှာ သေချာအောင် ပြန်စစ်ပေးပါ
+CHANNEL_USERNAME = "@Arbwrshotrtdrama"
 
 # --- DATABASE LOGIC ---
 HASHTAG_MAP = {
@@ -30,15 +30,24 @@ def load_data():
     if os.path.exists(DATA_FILE):
         try:
             with open(DATA_FILE, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except:
-            pass
+                data = json.load(f)
+                # Ensure all keys exist
+                for key in list(HASHTAG_MAP.values()) + ["new_movies"]:
+                    if key not in data:
+                        data[key] = []
+                return data
+        except Exception as e:
+            logging.error(f"Error loading data: {e}")
     return {key: [] for key in HASHTAG_MAP.values()} | {"new_movies": []}
 
 def save_data(data):
-    with open(DATA_FILE, 'w', encoding='utf-8') as f:
-        json.dump(data, f, ensure_ascii=False, indent=4)
+    try:
+        with open(DATA_FILE, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=4)
+    except Exception as e:
+        logging.error(f"Error saving data: {e}")
 
+# Global data variable
 persistent_data = load_data()
 
 def get_image_path(image_name):
@@ -64,15 +73,20 @@ def get_drama_text(category_key):
     titles = persistent_data.get(category_key, [])
     if not titles:
         return img, f"{header}\n\n⚠️ ဇာတ်ကားများ မရှိသေးပါ။"
-    list_text = "\n".join([f"{i+1}. {title}" for i, title in enumerate(titles)])
+    
+    # ပြသတဲ့အခါ နောက်ဆုံးတင်တဲ့ကားကို အပေါ်ဆုံးကပြမယ်
+    reversed_titles = list(reversed(titles))
+    list_text = "\n".join([f"{i+1}. {title}" for i, title in enumerate(reversed_titles)])
     return img, f"{header}\n\n{list_text}"
 
 async def channel_post_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Channel မှာ ပို့စ်တင်လိုက်ရင် Bot က အလိုအလျောက် သိမ်းဆည်းပေးမယ့် အပိုင်း"""
-    if not update.channel_post or not update.channel_post.text:
+    """Channel က Post များကို ဖမ်းယူပြီး Data သိမ်းဆည်းသောအပိုင်း"""
+    post = update.channel_post
+    if not post or not post.text:
         return
-    
-    text = update.channel_post.text
+
+    text = post.text
+    logging.info(f"New channel post received: {text[:50]}...")
     lines = [line.strip() for line in text.split('\n') if line.strip()]
     
     found_category = None
@@ -82,6 +96,7 @@ async def channel_post_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         for hashtag, cat_key in HASHTAG_MAP.items():
             if hashtag.lower() in line.lower():
                 found_category = cat_key
+                # Hashtag ပါတဲ့လိုင်းရဲ့ အောက်တစ်ကြောင်းကို ဇာတ်ကားနာမည်လို့ ယူဆမယ်
                 if i + 1 < len(lines):
                     movie_title = lines[i+1]
                 break
@@ -89,17 +104,18 @@ async def channel_post_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             break
             
     if found_category and movie_title:
+        # Category ထဲ ထည့်မယ်
         if movie_title not in persistent_data[found_category]:
             persistent_data[found_category].append(movie_title)
         
-        # ဇာတ်ကားအသစ် (၅) ကား စာရင်းထဲ ထည့်ခြင်း
+        # ဇာတ်ကားအသစ် (၁၀ ကား) စာရင်းထဲ ထည့်မယ်
         if movie_title not in persistent_data['new_movies']:
             persistent_data['new_movies'].insert(0, movie_title)
-            if len(persistent_data['new_movies']) > 5:
+            if len(persistent_data['new_movies']) > 10:
                 persistent_data['new_movies'].pop()
                 
         save_data(persistent_data)
-        logging.info(f"Added movie: {movie_title} to {found_category}")
+        logging.info(f"Successfully saved: {movie_title} to {found_category}")
 
 def get_main_keyboard():
     return InlineKeyboardMarkup([
@@ -158,17 +174,16 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_caption(caption=response_text, reply_markup=back_keyboard, parse_mode='Markdown')
 
 if __name__ == '__main__':
-    # Updated Token for Channel Bot
-    NEW_BOT_TOKEN = "8324982217:AAGu__tnwurpJ5bdigrFJGfYXhvZcwQ8W3c"
+    # သင်ပေးပို့လိုက်သော Token အသစ်
+    TOKEN = "8586583701:AAEIfryRol8G0v-AyvLohI-eaDxk5yYHcTs"
     
-    application = ApplicationBuilder().token(NEW_BOT_TOKEN).build()
+    application = ApplicationBuilder().token(TOKEN).build()
     
     # Handlers
     application.add_handler(CommandHandler('start', start))
     application.add_handler(CallbackQueryHandler(button_handler))
-    application.add_handler(MessageHandler(filters.ChatType.CHANNEL, channel_post_handler))
+    # Channel မှ စာသားများကိုသာ ဖတ်ရန် Filter ထားသည်
+    application.add_handler(MessageHandler(filters.ChatType.CHANNEL & filters.TEXT, channel_post_handler))
     
     print("Channel Bot is online and listening with the new token...")
-    
-    # drop_pending_updates=True က အဟောင်းများကို ရှင်းပေးပါလိမ့်မယ်။
     application.run_polling(drop_pending_updates=True)
