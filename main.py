@@ -5,15 +5,14 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMe
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, CallbackQueryHandler, MessageHandler, filters
 
 # --- CONFIGURATION & LOGGING ---
-# Error များကို ခြေရာခံနိုင်ရန် logging ဖွင့်ထားခြင်း
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
 # --- CONSTANTS & DATABASE PATH ---
 DATA_FILE = "bot_data.json"
+# သင့် Channel ID ကို ဒီမှာ သေချာအောင် ပြန်စစ်ပေးပါ
 CHANNEL_ID = "@Arbwrshotrtdrama"
 
 # --- DATABASE LOGIC ---
-# Hashtag နှင့် Category ချိတ်ဆက်မှု (Auto-Update အတွက်)
 HASHTAG_MAP = {
     '#romance': 'love',
     '#family': 'family',
@@ -28,29 +27,24 @@ HASHTAG_MAP = {
 }
 
 def load_data():
-    """JSON ဖိုင်မှ ဒေတာများကို ဖတ်ယူခြင်း"""
     if os.path.exists(DATA_FILE):
         try:
             with open(DATA_FILE, 'r', encoding='utf-8') as f:
                 return json.load(f)
         except:
             pass
-    # ဒေတာမရှိသေးပါက အလွတ်ဖြင့် စတင်မည်
     return {key: [] for key in HASHTAG_MAP.values()} | {"new_movies": []}
 
 def save_data(data):
-    """ဒေတာများကို JSON ဖိုင်ထဲသို့ သိမ်းဆည်းခြင်း"""
     with open(DATA_FILE, 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, indent=4)
 
-# Persistent data ကို စတင်ယူခြင်း
 persistent_data = load_data()
 
 def get_image_path(image_name):
     base_dir = os.path.dirname(os.path.abspath(__file__))
     return os.path.join(base_dir, image_name)
 
-# Category အလိုက် ခေါင်းစဉ်နှင့် ပုံများ
 CATEGORY_HEADERS = {
     'love': ("Romance.jpg", "💖 *အချစ်ဇာတ်လမ်းများ*"),
     'family': ("Family.jpg", "🏠 *အိမ်ထောင်ရေးဇာတ်လမ်းများ*"),
@@ -66,55 +60,47 @@ CATEGORY_HEADERS = {
 }
 
 def get_drama_text(category_key):
-    """စာရင်းကို စစ်ဆေးပြီး ပြသရန် စာသားထုတ်ပေးခြင်း"""
     img, header = CATEGORY_HEADERS.get(category_key, ("poster.jpg", "Unknown"))
     titles = persistent_data.get(category_key, [])
-    
     if not titles:
-        # ဇာတ်ကားမရှိသေးပါက ဤစာသားကို ပြပါမည်
         return img, f"{header}\n\n⚠️ ဇာတ်ကားများ မရှိသေးပါ။"
-    
     list_text = "\n".join([f"{i+1}. {title}" for i, title in enumerate(titles)])
     return img, f"{header}\n\n{list_text}"
 
-# --- AUTO-UPDATE LOGIC ---
 async def channel_post_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Channel Post များမှ ဇာတ်ကားများကို အလိုအလျောက် စာရင်းသွင်းပေးခြင်း"""
+    """Channel မှာ ပို့စ်တင်လိုက်ရင် Bot က အလိုအလျောက် သိမ်းဆည်းပေးမယ့် အပိုင်း"""
     if not update.channel_post or not update.channel_post.text:
         return
-
+    
     text = update.channel_post.text
     lines = [line.strip() for line in text.split('\n') if line.strip()]
     
     found_category = None
     movie_title = None
-
+    
     for i, line in enumerate(lines):
         for hashtag, cat_key in HASHTAG_MAP.items():
             if hashtag.lower() in line.lower():
                 found_category = cat_key
-                # Hashtag အောက်မှ ပထမဆုံး စာကြောင်းကို Title အဖြစ် ယူခြင်း
                 if i + 1 < len(lines):
                     movie_title = lines[i+1]
                 break
         if found_category:
             break
-
+            
     if found_category and movie_title:
-        # Category ထဲသို့ ထည့်ခြင်း
         if movie_title not in persistent_data[found_category]:
             persistent_data[found_category].append(movie_title)
         
-        # New Movies စာရင်း (FIFO - အများဆုံး ၅ ကား)
+        # ဇာတ်ကားအသစ် (၅) ကား စာရင်းထဲ ထည့်ခြင်း
         if movie_title not in persistent_data['new_movies']:
             persistent_data['new_movies'].insert(0, movie_title)
             if len(persistent_data['new_movies']) > 5:
                 persistent_data['new_movies'].pop()
-        
+                
         save_data(persistent_data)
-        logging.info(f"Updated: {movie_title} added to {found_category}")
+        logging.info(f"Added movie: {movie_title} to {found_category}")
 
-# --- KEYBOARDS & COMMANDS ---
 def get_main_keyboard():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("💖 အချစ်ဇာတ်လမ်း", callback_data='love'), InlineKeyboardButton("🏠 အိမ်ထောင်ရေး", callback_data='family')],
@@ -156,12 +142,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     reply_markup=get_main_keyboard()
                 )
         return
-
+        
     if data in CATEGORY_HEADERS:
         image_name, response_text = get_drama_text(data)
         image_path = get_image_path(image_name)
         back_keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 မူလစာမျက်နှာသို့", callback_data='main_menu')]])
-
+        
         if os.path.exists(image_path):
             with open(image_path, 'rb') as photo:
                 await query.edit_message_media(
@@ -171,17 +157,18 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await query.edit_message_caption(caption=response_text, reply_markup=back_keyboard, parse_mode='Markdown')
 
-# --- MAIN RUNNER ---
 if __name__ == '__main__':
-    # Token Updated to the latest one provided: 8586583701:AAEIfryRol8G0v-AyvLohI-eaDxk5yYHcTs
-    TOKEN = "8586583701:AAEIfryRol8G0v-AyvLohI-eaDxk5yYHcTs"
-    application = ApplicationBuilder().token(TOKEN).build()
+    # !!! အရေးကြီးသည် - @BotFather ထံမှရသော Bot အသစ်၏ Token ကို အောက်ပါနေရာတွင် ထည့်ပါ
+    NEW_BOT_TOKEN = "ဘော့အသစ်၏_TOKEN_ကို_ဒီမှာထည့်ပါ"
     
+    application = ApplicationBuilder().token(NEW_BOT_TOKEN).build()
+    
+    # Handlers
     application.add_handler(CommandHandler('start', start))
     application.add_handler(CallbackQueryHandler(button_handler))
-    
-    # Channel မှ post များကို ဖတ်ရန် listener (Bot သည် Channel Admin ဖြစ်ရန် လိုအပ်သည်)
     application.add_handler(MessageHandler(filters.ChatType.CHANNEL, channel_post_handler))
     
-    print("Arbwr Bot is online...")
-    application.run_polling()
+    print("Channel Bot is online and listening...")
+    
+    # drop_pending_updates=True က အဟောင်းများကို ရှင်းပေးပါလိမ့်မည်။
+    application.run_polling(drop_pending_updates=True)
