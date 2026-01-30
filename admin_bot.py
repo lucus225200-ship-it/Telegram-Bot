@@ -6,8 +6,8 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, CallbackQueryHandler
 
 # --- CONFIG ---
-# သင်ပေးပို့ထားသော Admin Token အသစ် (သေချာစွာ စစ်ဆေးပါ)
-ADMIN_BOT_TOKEN = "8324982217:AAGnEnHz-n6XV6ef0MBE-rMyWqVbbblQBEk"
+# Admin Bot အတွက် Token အသစ်
+ADMIN_BOT_TOKEN = "8324982217:AAEQ85YcMran1X0UEirIISV831FR1jrzXG4"
 
 # Admin အဖြစ်အသုံးပြုခွင့်ရှိသူများ၏ Telegram ID
 # (သင့် ID 8324982217 ကိုလည်း ထည့်သွင်းထားပါသည်)
@@ -24,32 +24,36 @@ DB_PATH = "storage/stats.db"
 
 def init_db():
     """Database နှင့် Table များကို အလိုအလျောက် တည်ဆောက်ပေးခြင်း"""
-    os.makedirs("storage", exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    
-    # ၁။ Entities Table
-    c.execute('''CREATE TABLE IF NOT EXISTS entities (
-                    chat_id TEXT PRIMARY KEY,
-                    title TEXT,
-                    member_count INTEGER,
-                    type TEXT,
-                    status TEXT DEFAULT 'active')''')
-    
-    # ၂။ Stats Table
-    c.execute('''CREATE TABLE IF NOT EXISTS stats (
+    try:
+        os.makedirs("storage", exist_ok=True)
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        
+        # ၁။ Entities Table
+        c.execute('''CREATE TABLE IF NOT EXISTS entities (
+                        chat_id TEXT PRIMARY KEY,
+                        title TEXT,
+                        member_count INTEGER,
+                        type TEXT,
+                        status TEXT DEFAULT 'active')''')
+        
+        # ၂။ Stats Table
+        c.execute('''CREATE TABLE IF NOT EXISTS stats (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     date TEXT,
                     type TEXT,
                     count INTEGER DEFAULT 0)''')
-    
-    # ၃။ Admin Settings Table
-    c.execute('''CREATE TABLE IF NOT EXISTS admin_settings (
+        
+        # ၃။ Admin Settings Table
+        c.execute('''CREATE TABLE IF NOT EXISTS admin_settings (
                     key TEXT PRIMARY KEY,
                     value TEXT)''')
-    
-    conn.commit()
-    conn.close()
+        
+        conn.commit()
+        conn.close()
+        logger.info("Database initialized successfully.")
+    except Exception as e:
+        logger.error(f"Database initialization error: {e}")
 
 async def admin_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Admin Dashboard ပင်မစာမျက်နှာ"""
@@ -76,7 +80,6 @@ async def stats_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
-    # တောင်းဆိုထားသော စာရင်းဇယား ၂၁ မျိုး
     metrics = [
         "Daily Joined", "Daily Left", "Total Followers", "Daily Total Members",
         "Daily Mute", "Daily Unmute", "Traffic-Invite", "Traffic-Search",
@@ -86,13 +89,10 @@ async def stats_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     
     stats_text = "📈 *LIVE TELEGRAM REAL-TIME DATA*\n" + "—" * 15 + "\n"
-    
-    # DB ထဲမှ Data များ ဖတ်ရန် (လက်ရှိတွင် 0 အဖြစ် ပြထားသည်)
     for m in metrics:
         stats_text += f"• {m}: `0` \n"
         
     back_keyboard = [[InlineKeyboardButton("🔙 Back to Menu", callback_data='admin_main')]]
-    
     await query.edit_message_text(
         stats_text, 
         parse_mode='Markdown', 
@@ -124,12 +124,12 @@ if __name__ == '__main__':
     try:
         application = ApplicationBuilder().token(ADMIN_BOT_TOKEN).build()
         
-        # Handlers များ ထည့်သွင်းမည်
         application.add_handler(CommandHandler('start', admin_start))
         application.add_handler(CallbackQueryHandler(stats_handler, pattern='show_stats'))
         application.add_handler(CallbackQueryHandler(main_menu_callback, pattern='admin_main'))
         
-        print("Admin Bot is running with the specified token...")
+        logger.info(f"Admin Bot is starting...")
+        # drop_pending_updates=True က Conflict ဖြစ်ခြင်းကို အများကြီး သက်သာစေပါသည်
         application.run_polling(drop_pending_updates=True)
     except Exception as e:
-        logger.error(f"Failed to start bot: {e}")
+        logger.error(f"Critical error: {e}")
