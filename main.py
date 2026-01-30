@@ -5,11 +5,12 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMe
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, CallbackQueryHandler, MessageHandler, filters
 
 # --- CONFIGURATION & LOGGING ---
+# ပိုမိုပြည့်စုံသော logging စနစ် (Error တွေကို ပိုသိသာစေရန်)
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # --- CONSTANTS & DATABASE PATH ---
 DATA_FILE = "bot_data.json"
-CHANNEL_USERNAME = "@Arbwrshotrtdrama"
 
 # --- DATABASE LOGIC ---
 HASHTAG_MAP = {
@@ -35,7 +36,7 @@ def load_data():
                         data[key] = []
                 return data
         except Exception as e:
-            logging.error(f"Error loading data: {e}")
+            logger.error(f"Error loading data: {e}")
     return {key: [] for key in HASHTAG_MAP.values()} | {"new_movies": []}
 
 def save_data(data):
@@ -43,7 +44,7 @@ def save_data(data):
         with open(DATA_FILE, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=4)
     except Exception as e:
-        logging.error(f"Error saving data: {e}")
+        logger.error(f"Error saving data: {e}")
 
 persistent_data = load_data()
 
@@ -70,17 +71,26 @@ def get_drama_text(category_key):
     titles = persistent_data.get(category_key, [])
     if not titles:
         return img, f"{header}\n\n⚠️ ဇာတ်ကားများ မရှိသေးပါ။"
+    
     reversed_titles = list(reversed(titles))
     list_text = "\n".join([f"{i+1}. {title}" for i, title in enumerate(reversed_titles)])
     return img, f"{header}\n\n{list_text}"
 
 async def channel_post_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    post = update.channel_post
-    if not post or not post.text:
+    # Debug: စာဝင်မဝင် သိရအောင် Log ထုတ်ကြည့်မယ်
+    logger.info("--- NEW UPDATE SEEN IN CHANNEL ---")
+    
+    post = update.channel_post or update.edited_channel_post
+    if not post:
+        logger.info("No channel post found in this update.")
         return
 
-    text = post.text
-    logging.info(f"RECEIVED POST: {text[:100]}") # Debug Log
+    text = post.text if post.text else post.caption
+    if not text:
+        logger.info("Update received but it has no text or caption.")
+        return
+
+    logger.info(f"POST CONTENT: {text[:100]}...")
     
     lines = [line.strip() for line in text.split('\n') if line.strip()]
     
@@ -100,16 +110,16 @@ async def channel_post_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     if found_category and movie_title:
         if movie_title not in persistent_data[found_category]:
             persistent_data[found_category].append(movie_title)
-            logging.info(f"Added to category {found_category}: {movie_title}")
+            logger.info(f"SUCCESS: '{movie_title}' added to '{found_category}'")
         
         if movie_title not in persistent_data['new_movies']:
             persistent_data['new_movies'].insert(0, movie_title)
-            if len(persistent_data['new_movies']) > 10:
+            if len(persistent_data['new_movies']) > 50:
                 persistent_data['new_movies'].pop()
                 
         save_data(persistent_data)
     else:
-        logging.warning("Post received but no matching hashtag or title found.")
+        logger.warning(f"FAILED TO PARSE: Found Category: {found_category}, Title: {movie_title}")
 
 def get_main_keyboard():
     return InlineKeyboardMarkup([
@@ -168,15 +178,21 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_caption(caption=response_text, reply_markup=back_keyboard, parse_mode='Markdown')
 
 if __name__ == '__main__':
-    # အသစ်ပေးပို့လိုက်သော Token
     TOKEN = "8586583701:AAE-ZVQJjw0mqKl0ePcM9QGbnVv4gLbm2fE"
     
+    # Application ကို build လုပ်တဲ့အခါ update အမျိုးအစားအားလုံးကို လက်ခံဖို့ ပြင်ဆင်ခြင်း
     application = ApplicationBuilder().token(TOKEN).build()
     
     application.add_handler(CommandHandler('start', start))
     application.add_handler(CallbackQueryHandler(button_handler))
-    # Channel Post များအတွက် Handler
-    application.add_handler(MessageHandler(filters.ChatType.CHANNEL & filters.TEXT, channel_post_handler))
     
-    print(f"Bot is running with the new token...")
-    application.run_polling(drop_pending_updates=True)
+    # Filter များကို ပိုမိုကျယ်ပြန့်စွာ ထားရှိခြင်း (Text သာမက Photo Caption ပါ ဖတ်ရန်)
+    application.add_handler(MessageHandler(
+        (filters.UpdateType.CHANNEL_POSTS | filters.UpdateType.EDITED_CHANNEL_POSTS) & 
+        (filters.TEXT | filters.CAPTION), 
+        channel_post_handler
+    ))
+    
+    logger.info("Bot started. Listening for ALL updates...")
+    # allowed_updates=Update.ALL_TYPES ထည့်ပေးခြင်းက Channel စာတွေကို ဖတ်ဖို့ အရေးကြီးဆုံးအချက်ပါ
+    application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
