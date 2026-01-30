@@ -11,7 +11,11 @@ from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, Callb
 ADMIN_BOT_TOKEN = "8324982217:AAEQ85YcMran1X0UEirIISV831FR1jrzXG4"
 ALLOWED_ADMINS = [8324982217]  
 
-logging.basicConfig(level=logging.INFO)
+# Logging setting
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
 logger = logging.getLogger(__name__)
 
 DB_PATH = "storage/stats.db"
@@ -25,7 +29,6 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS chats (id TEXT PRIMARY KEY, title TEXT, link TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS stats (type TEXT PRIMARY KEY, count INTEGER DEFAULT 0)''')
     
-    # ပုံသေ Setting များ
     default_settings = [
         ('language', 'my'),
         ('bot_status', 'ON'),
@@ -98,13 +101,21 @@ async def admin_setting(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("⚙️ *Admin Control Panel*", 
                                    reply_markup=get_main_keyboard(), parse_mode='Markdown')
 
+async def admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id not in ALLOWED_ADMINS: return
+    await update.message.reply_text("📊 *Statistics:* (အချက်အလက်များကို ဤနေရာတွင် ပြသမည်)")
+
+async def admin_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id not in ALLOWED_ADMINS: return
+    await update.message.reply_text("📝 *Post Creator:* ပို့စ်အသစ်တင်ရန် ပြင်ဆင်ပါ")
+
 # --- ERROR HANDLER ---
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-    # Conflict error ကို log ထဲမှာ အများကြီး မပြစေဘဲ တည်ငြိမ်အောင် ထိန်းပေးပါသည်
-    if "Conflict" in str(context.error):
-        logger.warning("Bot conflict detected. Automatic recovery in progress...")
+    error_msg = str(context.error)
+    if "Conflict" in error_msg:
+        logger.warning("Another instance is running. Attempting to take over...")
     else:
-        logger.error(f"Exception while handling an update: {context.error}")
+        logger.error(f"Update {update} caused error: {context.error}")
 
 # --- CALLBACK HANDLER ---
 async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -112,27 +123,21 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data
     await query.answer()
     
-    # Navigation
     if data == "menu_ch":
         await query.edit_message_text("📢 *Channel Individual Settings*", reply_markup=get_channel_keyboard(), parse_mode='Markdown')
     elif data == "menu_gp":
         await query.edit_message_text("👥 *Group Individual Settings*", reply_markup=get_group_keyboard(), parse_mode='Markdown')
     elif data == "admin_main":
         await query.edit_message_text("⚙️ *Admin Control Panel*", reply_markup=get_main_keyboard(), parse_mode='Markdown')
-    
-    # Toggle Logic
     elif data.startswith("tog_"):
         key = data.replace("tog_", "")
         toggle_db_setting(key)
-        
-        # Refresh the current view based on key
         if key.startswith("ch_"):
             await query.edit_message_reply_markup(reply_markup=get_channel_keyboard())
         elif key.startswith("gp_"):
             await query.edit_message_reply_markup(reply_markup=get_group_keyboard())
         elif key == "bot_status":
             await query.edit_message_reply_markup(reply_markup=get_main_keyboard())
-            
     elif data == "toggle_lang":
         curr = get_setting('language')
         new_lang = "en" if curr == "my" else "my"
@@ -141,31 +146,38 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
             conn.execute("UPDATE settings SET value=? WHERE key='language'", (new_lang,))
             conn.commit()
             conn.close()
-        except:
-            pass
+        except: pass
         await query.edit_message_reply_markup(reply_markup=get_main_keyboard())
-        
     elif data == "close":
         await query.delete_message()
+
+# --- SETUP COMMAND MENU ---
+async def setup_commands(application):
+    commands = [
+        BotCommand("start", "Bot ကိုစတင်ရန်"),
+        BotCommand("setting", "Admin Control Panel ဖွင့်ရန်"),
+        BotCommand("post", "Channel သို့ ပို့စ်တင်ရန်"),
+        BotCommand("stats", "စာရင်းဇယားများကြည့်ရန်"),
+        BotCommand("chat", "Chat settings များကြည့်ရန်"),
+        BotCommand("data", "Database အချက်အလက်များ")
+    ]
+    await application.bot.set_my_commands(commands)
 
 if __name__ == '__main__':
     init_db()
     application = ApplicationBuilder().token(ADMIN_BOT_TOKEN).build()
     
-    application.add_handler(CommandHandler('setting', admin_setting))
+    # Register Commands
     application.add_handler(CommandHandler('start', admin_setting))
+    application.add_handler(CommandHandler('setting', admin_setting))
+    application.add_handler(CommandHandler('post', admin_post))
+    application.add_handler(CommandHandler('stats', admin_stats))
     application.add_handler(CallbackQueryHandler(handle_callbacks))
-    
     application.add_error_handler(error_handler)
     
-    print("Admin Bot is active and running...")
+    # Command Menu ကို Bot ထဲမှာ Register လုပ်ခြင်း
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(setup_commands(application))
     
-    # application.run_polling() တွင် ပိုမိုမြန်ဆန်သော recovery ဖြစ်စေရန် parameter များ ထပ်တိုးထားသည်
-    application.run_polling(
-        allowed_updates=Update.ALL_TYPES,
-        drop_pending_updates=True,
-        close_loop=True,
-        # Network latency များအတွက် timeout ကို ညှိပေးထားပါသည်
-        read_timeout=20,
-        write_timeout=20
-    )
+    print("Admin Bot is active and running with Menu...")
+    application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
