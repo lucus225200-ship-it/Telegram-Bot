@@ -10,9 +10,8 @@ from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, Callb
 # Admin Bot Token (သင်အသုံးပြုနေသော Bot Token အမှန်ဖြစ်ရပါမည်)
 ADMIN_BOT_TOKEN = "8324982217:AAEQ85YcMran1X0UEirIISV831FR1jrzXG4"
 
-# Admin ID (သင့်ရဲ့ Telegram ID အမှန်ကို ဒီနေရာမှာ အစားထိုးပါ - ဥပမာ: 12345678)
-# ID ကိုသိလိုပါက @userinfobot ထံတွင် စစ်ဆေးနိုင်ပါသည်
-ALLOWED_ADMINS = [8324982217]  
+# Admin ID (သင့်ရဲ့ Telegram ID: 8346273059 ကို ထည့်သွင်းပြီးဖြစ်သည်)
+ALLOWED_ADMINS = [8346273059]  
 
 # Logging setting
 logging.basicConfig(
@@ -102,10 +101,12 @@ def get_group_keyboard():
 # --- COMMAND HANDLERS ---
 async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    # Admin ဟုတ်မဟုတ် စစ်ဆေးခြင်း
     if user_id not in ALLOWED_ADMINS:
-        await update.message.reply_text(f"⚠️ *Access Denied*\nYour ID: `{user_id}` is not authorized.", parse_mode='Markdown')
-        logger.warning(f"Unauthorized access attempt by {user_id}")
+        await update.message.reply_text(
+            f"❌ *ဝင်ရောက်ခွင့်မရှိပါ*\n\nသင့်ရဲ့ Telegram ID က `{user_id}` ဖြစ်ပါတယ်။ "
+            f"ဒီ ID ကို Admin အဖြစ် သတ်မှတ်ထားခြင်း မရှိသေးပါ။", 
+            parse_mode='Markdown'
+        )
         return
     
     await update.message.reply_text(
@@ -113,6 +114,10 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=get_main_keyboard(), 
         parse_mode='Markdown'
     )
+
+async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id not in ALLOWED_ADMINS: return
+    await update.message.reply_text("📊 *Statistics Data*\n\n(လက်ရှိတွင် စာရင်းဇယားများကို စုဆောင်းနေဆဲဖြစ်သည်)", parse_mode='Markdown')
 
 # --- CALLBACK HANDLER ---
 async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -131,7 +136,7 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "admin_main":
         await query.edit_message_text("⚙️ *Admin Control Panel*", reply_markup=get_main_keyboard(), parse_mode='Markdown')
     elif data == "view_stats":
-        await query.edit_message_text("📊 *Statistics Data*\n\n(စာရင်းဇယားများ ဤနေရာတွင် ပေါ်မည်)", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="admin_main")]]), parse_mode='Markdown')
+        await query.edit_message_text("📊 *Statistics Data*", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="admin_main")]]), parse_mode='Markdown')
     elif data.startswith("tog_"):
         key = data.replace("tog_", "")
         toggle_db_setting(key)
@@ -161,12 +166,9 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
 # --- SETUP COMMAND MENU ---
 async def setup_commands(application):
     commands = [
-        BotCommand("start", "Control Panel ကိုဖွင့်ရန်"),
-        BotCommand("setting", "Settings များပြင်ရန်"),
-        BotCommand("post", "ပို့စ်အသစ်တင်ရန်"),
+        BotCommand("start", "Control Panel ဖွင့်ရန်"),
+        BotCommand("setting", "Settings ပြင်ရန်"),
         BotCommand("stats", "စာရင်းဇယားကြည့်ရန်"),
-        BotCommand("chat", "Chat settings"),
-        BotCommand("data", "Database info")
     ]
     await application.bot.set_my_commands(commands)
 
@@ -177,15 +179,15 @@ if __name__ == '__main__':
     # Handlers
     application.add_handler(CommandHandler('start', start_handler))
     application.add_handler(CommandHandler('setting', start_handler))
+    application.add_handler(CommandHandler('stats', stats_command))
     application.add_handler(CallbackQueryHandler(handle_callbacks))
     application.add_error_handler(error_handler)
     
-    # Run setup_commands once
+    # Run setup
     loop = asyncio.get_event_loop()
     try:
         loop.run_until_complete(setup_commands(application))
-    except Exception as e:
-        print(f"Error setting commands: {e}")
+    except: pass
     
-    print("Admin Bot is running...")
+    print("Admin Bot is running with ID: 8346273059")
     application.run_polling(drop_pending_updates=True)
