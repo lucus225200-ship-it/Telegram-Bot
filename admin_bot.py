@@ -1,17 +1,25 @@
 import os
 import sqlite3
 import logging
+import asyncio
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, CallbackQueryHandler
 
 # --- CONFIG ---
-# သင်ပေးပို့ထားသော Admin Token အသစ်
+# သင်ပေးပို့ထားသော Admin Token အသစ် (သေချာစွာ စစ်ဆေးပါ)
 ADMIN_BOT_TOKEN = "8324982217:AAGnEnHz-n6XV6ef0MBE-rMyWqVbbblQBEk"
 
-# Admin အဖြစ်အသုံးပြုခွင့်ရှိသူများ၏ Telegram ID (ဒီနေရာမှာ သင့် ID ကို ထည့်ပါ)
+# Admin အဖြစ်အသုံးပြုခွင့်ရှိသူများ၏ Telegram ID
+# (သင့် ID 8324982217 ကိုလည်း ထည့်သွင်းထားပါသည်)
 ALLOWED_ADMINS = [8324982217, 12345678]  
 
-logging.basicConfig(level=logging.INFO)
+# Logging setup
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
+
 DB_PATH = "storage/stats.db"
 
 def init_db():
@@ -47,7 +55,7 @@ async def admin_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Admin Dashboard ပင်မစာမျက်နှာ"""
     user_id = update.effective_user.id
     if user_id not in ALLOWED_ADMINS:
-        # Admin မဟုတ်လျှင် ဘာမှမလုပ်ပါ (လုံခြုံရေးအရ)
+        logger.warning(f"Unauthorized access attempt by ID: {user_id}")
         return
     
     keyboard = [
@@ -113,12 +121,15 @@ if __name__ == '__main__':
     init_db()
     
     # ၂။ Bot ကို Run မည်
-    application = ApplicationBuilder().token(ADMIN_BOT_TOKEN).build()
-    
-    # Handlers များ ထည့်သွင်းမည်
-    application.add_handler(CommandHandler('start', admin_start))
-    application.add_handler(CallbackQueryHandler(stats_handler, pattern='show_stats'))
-    application.add_handler(CallbackQueryHandler(main_menu_callback, pattern='admin_main'))
-    
-    print("Admin Bot is running with new token...")
-    application.run_polling()
+    try:
+        application = ApplicationBuilder().token(ADMIN_BOT_TOKEN).build()
+        
+        # Handlers များ ထည့်သွင်းမည်
+        application.add_handler(CommandHandler('start', admin_start))
+        application.add_handler(CallbackQueryHandler(stats_handler, pattern='show_stats'))
+        application.add_handler(CallbackQueryHandler(main_menu_callback, pattern='admin_main'))
+        
+        print("Admin Bot is running with the specified token...")
+        application.run_polling(drop_pending_updates=True)
+    except Exception as e:
+        logger.error(f"Failed to start bot: {e}")
