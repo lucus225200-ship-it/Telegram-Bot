@@ -118,6 +118,27 @@ async def admin_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("📝 *Post & Movie Scheduler*\n\nတင်မည့်ပုံစံကို ရွေးချယ်ပါ။", 
                                    reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
+# --- SUB-MENU FUNCTIONS ---
+async def show_channel_settings(query):
+    kb = [
+        [InlineKeyboardButton(f"Chat: {get_setting('ch_chat')}", callback_data="tog_ch_chat"),
+         InlineKeyboardButton(f"Comment: {get_setting('ch_comment')}", callback_data="tog_ch_comment")],
+        [InlineKeyboardButton(f"Reaction: {get_setting('ch_reaction')}", callback_data="tog_ch_reaction"),
+         InlineKeyboardButton(f"Protect (SS/RC/FW): {get_setting('ch_protect')}", callback_data="tog_ch_protect")],
+        [InlineKeyboardButton("🔙 Back", callback_data="admin_main")]
+    ]
+    await query.edit_message_text("📢 *Channel Individual Settings*", reply_markup=InlineKeyboardMarkup(kb), parse_mode='Markdown')
+
+async def show_group_settings(query):
+    kb = [
+        [InlineKeyboardButton(f"Chat: {get_setting('gp_chat')}", callback_data="tog_gp_chat"),
+         InlineKeyboardButton(f"Comment: {get_setting('gp_comment')}", callback_data="tog_gp_comment")],
+        [InlineKeyboardButton(f"Reaction: {get_setting('gp_reaction')}", callback_data="tog_gp_reaction"),
+         InlineKeyboardButton(f"Protect (SS/RC/FW): {get_setting('gp_protect')}", callback_data="tog_gp_protect")],
+        [InlineKeyboardButton("🔙 Back", callback_data="admin_main")]
+    ]
+    await query.edit_message_text("👥 *Group Individual Settings*", reply_markup=InlineKeyboardMarkup(kb), parse_mode='Markdown')
+
 # --- CALLBACK HANDLER ---
 async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -125,24 +146,10 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     
     if data == "menu_ch":
-        kb = [
-            [InlineKeyboardButton(f"Chat: {get_setting('ch_chat')}", callback_data="tog_ch_chat"),
-             InlineKeyboardButton(f"Comment: {get_setting('ch_comment')}", callback_data="tog_ch_comment")],
-            [InlineKeyboardButton(f"Reaction: {get_setting('ch_reaction')}", callback_data="tog_ch_reaction"),
-             InlineKeyboardButton(f"Protect (SS/RC/FW): {get_setting('ch_protect')}", callback_data="tog_ch_protect")],
-            [InlineKeyboardButton("🔙 Back", callback_data="admin_main")]
-        ]
-        await query.edit_message_text("📢 *Channel Individual Settings*", reply_markup=InlineKeyboardMarkup(kb), parse_mode='Markdown')
+        await show_channel_settings(query)
 
     elif data == "menu_gp":
-        kb = [
-            [InlineKeyboardButton(f"Chat: {get_setting('gp_chat')}", callback_data="tog_gp_chat"),
-             InlineKeyboardButton(f"Comment: {get_setting('gp_comment')}", callback_data="tog_gp_comment")],
-            [InlineKeyboardButton(f"Reaction: {get_setting('gp_reaction')}", callback_data="tog_gp_reaction"),
-             InlineKeyboardButton(f"Protect (SS/RC/FW): {get_setting('gp_protect')}", callback_data="tog_gp_protect")],
-            [InlineKeyboardButton("🔙 Back", callback_data="admin_main")]
-        ]
-        await query.edit_message_text("👥 *Group Individual Settings*", reply_markup=InlineKeyboardMarkup(kb), parse_mode='Markdown')
+        await show_group_settings(query)
 
     elif data == "admin_main":
         keyboard = [
@@ -158,11 +165,30 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data.startswith("tog_"):
         key = data.replace("tog_", "")
         toggle_db_setting(key)
-        # Refresh current menu
-        if "ch_" in key: await handle_callbacks(update, context) # Recursive call to refresh channel menu
-        else: await handle_callbacks(update, context)
+        # Refresh the correct sub-menu
+        if key.startswith("ch_"):
+            await show_channel_settings(query)
+        elif key.startswith("gp_"):
+            await show_group_settings(query)
+        elif key == "bot_status":
+            # Refresh main menu if bot status toggled from main
+            await handle_callbacks(update, context)
 
-    elif data == "close": await query.delete_message()
+    elif data == "toggle_bot_main":
+        toggle_db_setting('bot_status')
+        # Refresh main menu
+        keyboard = [
+            [InlineKeyboardButton("📢 Channel Settings", callback_data="menu_ch"),
+             InlineKeyboardButton("👥 Group Settings", callback_data="menu_gp")],
+            [InlineKeyboardButton("🌍 Change Language", callback_data="set_lang_menu")],
+            [InlineKeyboardButton("🚫 Banned Words (+/-)", callback_data="manage_banned")],
+            [InlineKeyboardButton("🤖 Bot Status: " + get_setting('bot_status'), callback_data="toggle_bot_main")],
+            [InlineKeyboardButton("❌ Close", callback_data="close")]
+        ]
+        await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(keyboard))
+
+    elif data == "close":
+        await query.delete_message()
 
 if __name__ == '__main__':
     init_db()
@@ -181,7 +207,9 @@ if __name__ == '__main__':
     try:
         loop = asyncio.get_event_loop()
         loop.run_until_complete(set_commands(application))
-    except: pass
+    except:
+        pass
 
-    print("Admin Bot is fully operational...")
+    print("Admin Bot is fully operational and watching for updates...")
+    # drop_pending_updates helps avoid Conflict errors on restart
     application.run_polling(drop_pending_updates=True)
