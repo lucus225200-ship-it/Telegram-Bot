@@ -138,6 +138,11 @@ if __name__ == '__main__':
     application.add_handler(CommandHandler('start', admin_setting))
     application.add_handler(CallbackQueryHandler(handle_callbacks))
     
-    print("Admin Bot is active...")
-    # drop_pending_updates=True က Conflict Error တွေကို အလိုအလျောက် ရှင်းလင်းပေးပါတယ်
-    application.run_polling(drop_pending_updates=True)
+    print("Admin Bot is active and running...")
+    
+    # allowed_updates=Update.ALL_TYPES နှင့် drop_pending_updates=True ပေါင်းစပ်လိုက်ခြင်းဖြင့် 
+    # Bot Connection ကို ပိုမိုတည်ငြိမ်စေပြီး Conflict ဖြစ်မှုကို အမြင့်ဆုံးကာကွယ်ပေးပါတယ်။
+    application.run_polling(
+        allowed_updates=Update.ALL_TYPES,
+        drop_pending_updates=True
+    )
