@@ -31,7 +31,6 @@ def load_data():
         try:
             with open(DATA_FILE, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-                # Ensure new data structures exist
                 if 'enhanced_data' not in data:
                     data['enhanced_data'] = {v: [] for v in HASHTAG_MAP.values()}
                 if 'new_movies_list' not in data:
@@ -90,7 +89,7 @@ def get_myanmar_date(date_str):
     except:
         return ""
 
-# --- BUTTON BUILDER (Rule #1, #2, #3) ---
+# --- BUTTON BUILDER ---
 def build_movie_buttons(category_key):
     if category_key == 'new_movies':
         movies = persistent_data.get('new_movies_list', [])
@@ -105,17 +104,17 @@ def build_movie_buttons(category_key):
     else:
         caption = f"{header_text}\n\nကြည့်ရှုလိုသည့် ဇာတ်ကားကို နှိပ်ပါ 👇"
         for movie in movies:
-            # Rule: One title = One button with Jump Link
-            keyboard.append([InlineKeyboardButton(f"🎬 {movie['title']}", url=movie['link'])])
-            # Rule: Non-clickable time label underneath
             time_label = get_myanmar_date(movie['date'])
-            keyboard.append([InlineKeyboardButton(time_label, callback_data="none")])
+            # 🎬 ခေါင်းစဉ် (ရက်စွဲ) ကို Button တစ်ခုတည်းမှာ ပေါင်းလိုက်ခြင်း
+            button_text = f"🎬 {movie['title']} {time_label}"
+            keyboard.append([InlineKeyboardButton(button_text, url=movie['link'])])
 
     keyboard.append([InlineKeyboardButton("🔙 မူလစာမျက်နှာသို့", callback_data='main_menu')])
     return InlineKeyboardMarkup(keyboard), caption
 
-# --- CHANNEL HANDLER (Rule #1, #2) ---
+# --- CHANNEL HANDLER ---
 async def channel_post_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.info(">>> CHANNEL ACTIVITY DETECTED <<<")
     post = update.channel_post or update.edited_channel_post
     if not post: return
 
@@ -131,12 +130,11 @@ async def channel_post_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             if hashtag.lower() in line.lower():
                 found_category = cat_key
                 if i + 1 < len(lines):
-                    movie_title = lines[i+1] # First line after hashtag
+                    movie_title = lines[i+1]
                 break
         if found_category: break
 
     if found_category and movie_title:
-        # Generate Jump Link
         if post.chat.username:
             post_link = f"https://t.me/{post.chat.username}/{post.message_id}"
         else:
@@ -149,9 +147,8 @@ async def channel_post_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             "date": datetime.datetime.now().strftime("%Y-%m-%d")
         }
 
-        # Update Category List (Newest at Top)
+        # Update Category
         cat_list = persistent_data['enhanced_data'][found_category]
-        # Remove if exists to re-insert at top
         persistent_data['enhanced_data'][found_category] = [m for m in cat_list if m['title'] != movie_title]
         persistent_data['enhanced_data'][found_category].insert(0, movie_entry)
 
@@ -161,10 +158,10 @@ async def channel_post_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         persistent_data['new_movies_list'].insert(0, movie_entry)
         
         if len(persistent_data['new_movies_list']) > 5:
-            persistent_data['new_movies_list'].pop() # Remove oldest
+            persistent_data['new_movies_list'].pop()
 
         save_data(persistent_data)
-        logger.info(f"Added to DB: {movie_title}")
+        logger.info(f"SUCCESS: Saved movie '{movie_title}'")
 
 def get_main_keyboard():
     return InlineKeyboardMarkup([
@@ -224,16 +221,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 if __name__ == '__main__':
     TOKEN = "8586583701:AAE-ZVQJjw0mqKl0ePcM9QGbnVv4gLbm2fE"
-    
     application = ApplicationBuilder().token(TOKEN).build()
-    
     application.add_handler(CommandHandler('start', start))
     application.add_handler(CallbackQueryHandler(button_handler))
+    application.add_handler(MessageHandler(filters.ChatType.CHANNEL & (filters.TEXT | filters.CAPTION), channel_post_handler))
     
-    application.add_handler(MessageHandler(
-        filters.ChatType.CHANNEL & (filters.TEXT | filters.CAPTION), 
-        channel_post_handler
-    ))
-    
-    logger.info("Bot is starting with FIFO and Jump Link logic...")
+    logger.info("Bot is starting...")
     application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
