@@ -7,8 +7,11 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotComm
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, CallbackQueryHandler, MessageHandler, filters
 
 # --- CONFIG ---
-# Admin Bot Token
+# Admin Bot Token (သင်အသုံးပြုနေသော Bot Token အမှန်ဖြစ်ရပါမည်)
 ADMIN_BOT_TOKEN = "8324982217:AAEQ85YcMran1X0UEirIISV831FR1jrzXG4"
+
+# Admin ID (သင့်ရဲ့ Telegram ID အမှန်ကို ဒီနေရာမှာ အစားထိုးပါ - ဥပမာ: 12345678)
+# ID ကိုသိလိုပါက @userinfobot ထံတွင် စစ်ဆေးနိုင်ပါသည်
 ALLOWED_ADMINS = [8324982217]  
 
 # Logging setting
@@ -74,6 +77,7 @@ def get_main_keyboard():
          InlineKeyboardButton("👥 Group Settings", callback_data="menu_gp")],
         [InlineKeyboardButton("🌍 Language: " + get_setting('language').upper(), callback_data="toggle_lang")],
         [InlineKeyboardButton("🤖 Bot Status: " + get_setting('bot_status'), callback_data="tog_bot_status")],
+        [InlineKeyboardButton("📊 Statistics", callback_data="view_stats")],
         [InlineKeyboardButton("❌ Close", callback_data="close")]
     ])
 
@@ -96,39 +100,38 @@ def get_group_keyboard():
     ])
 
 # --- COMMAND HANDLERS ---
-async def admin_setting(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in ALLOWED_ADMINS: return
-    await update.message.reply_text("⚙️ *Admin Control Panel*", 
-                                   reply_markup=get_main_keyboard(), parse_mode='Markdown')
-
-async def admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in ALLOWED_ADMINS: return
-    await update.message.reply_text("📊 *Statistics:* (အချက်အလက်များကို ဤနေရာတွင် ပြသမည်)")
-
-async def admin_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in ALLOWED_ADMINS: return
-    await update.message.reply_text("📝 *Post Creator:* ပို့စ်အသစ်တင်ရန် ပြင်ဆင်ပါ")
-
-# --- ERROR HANDLER ---
-async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-    error_msg = str(context.error)
-    if "Conflict" in error_msg:
-        logger.warning("Another instance is running. Attempting to take over...")
-    else:
-        logger.error(f"Update {update} caused error: {context.error}")
+async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    # Admin ဟုတ်မဟုတ် စစ်ဆေးခြင်း
+    if user_id not in ALLOWED_ADMINS:
+        await update.message.reply_text(f"⚠️ *Access Denied*\nYour ID: `{user_id}` is not authorized.", parse_mode='Markdown')
+        logger.warning(f"Unauthorized access attempt by {user_id}")
+        return
+    
+    await update.message.reply_text(
+        "👋 *Admin Control Panel မှ ကြိုဆိုပါတယ်*\n\nအောက်ပါ Menu များမှတစ်ဆင့် Bot ကို ထိန်းချုပ်နိုင်ပါတယ်။", 
+        reply_markup=get_main_keyboard(), 
+        parse_mode='Markdown'
+    )
 
 # --- CALLBACK HANDLER ---
 async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    if query.from_user.id not in ALLOWED_ADMINS:
+        await query.answer("You are not authorized!", show_alert=True)
+        return
+        
     data = query.data
     await query.answer()
     
     if data == "menu_ch":
-        await query.edit_message_text("📢 *Channel Individual Settings*", reply_markup=get_channel_keyboard(), parse_mode='Markdown')
+        await query.edit_message_text("📢 *Channel Settings*", reply_markup=get_channel_keyboard(), parse_mode='Markdown')
     elif data == "menu_gp":
-        await query.edit_message_text("👥 *Group Individual Settings*", reply_markup=get_group_keyboard(), parse_mode='Markdown')
+        await query.edit_message_text("👥 *Group Settings*", reply_markup=get_group_keyboard(), parse_mode='Markdown')
     elif data == "admin_main":
         await query.edit_message_text("⚙️ *Admin Control Panel*", reply_markup=get_main_keyboard(), parse_mode='Markdown')
+    elif data == "view_stats":
+        await query.edit_message_text("📊 *Statistics Data*\n\n(စာရင်းဇယားများ ဤနေရာတွင် ပေါ်မည်)", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="admin_main")]]), parse_mode='Markdown')
     elif data.startswith("tog_"):
         key = data.replace("tog_", "")
         toggle_db_setting(key)
@@ -151,15 +154,19 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "close":
         await query.delete_message()
 
+# --- ERROR HANDLER ---
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    logger.error(f"Update {update} caused error: {context.error}")
+
 # --- SETUP COMMAND MENU ---
 async def setup_commands(application):
     commands = [
-        BotCommand("start", "Bot ကိုစတင်ရန်"),
-        BotCommand("setting", "Admin Control Panel ဖွင့်ရန်"),
-        BotCommand("post", "Channel သို့ ပို့စ်တင်ရန်"),
-        BotCommand("stats", "စာရင်းဇယားများကြည့်ရန်"),
-        BotCommand("chat", "Chat settings များကြည့်ရန်"),
-        BotCommand("data", "Database အချက်အလက်များ")
+        BotCommand("start", "Control Panel ကိုဖွင့်ရန်"),
+        BotCommand("setting", "Settings များပြင်ရန်"),
+        BotCommand("post", "ပို့စ်အသစ်တင်ရန်"),
+        BotCommand("stats", "စာရင်းဇယားကြည့်ရန်"),
+        BotCommand("chat", "Chat settings"),
+        BotCommand("data", "Database info")
     ]
     await application.bot.set_my_commands(commands)
 
@@ -167,17 +174,18 @@ if __name__ == '__main__':
     init_db()
     application = ApplicationBuilder().token(ADMIN_BOT_TOKEN).build()
     
-    # Register Commands
-    application.add_handler(CommandHandler('start', admin_setting))
-    application.add_handler(CommandHandler('setting', admin_setting))
-    application.add_handler(CommandHandler('post', admin_post))
-    application.add_handler(CommandHandler('stats', admin_stats))
+    # Handlers
+    application.add_handler(CommandHandler('start', start_handler))
+    application.add_handler(CommandHandler('setting', start_handler))
     application.add_handler(CallbackQueryHandler(handle_callbacks))
     application.add_error_handler(error_handler)
     
-    # Command Menu ကို Bot ထဲမှာ Register လုပ်ခြင်း
+    # Run setup_commands once
     loop = asyncio.get_event_loop()
-    loop.run_until_complete(setup_commands(application))
+    try:
+        loop.run_until_complete(setup_commands(application))
+    except Exception as e:
+        print(f"Error setting commands: {e}")
     
-    print("Admin Bot is active and running with Menu...")
-    application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
+    print("Admin Bot is running...")
+    application.run_polling(drop_pending_updates=True)
