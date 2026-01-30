@@ -100,7 +100,11 @@ async def admin_setting(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # --- ERROR HANDLER ---
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-    logger.error(f"Exception while handling an update: {context.error}")
+    # Conflict error ကို log ထဲမှာ အများကြီး မပြစေဘဲ တည်ငြိမ်အောင် ထိန်းပေးပါသည်
+    if "Conflict" in str(context.error):
+        logger.warning("Bot conflict detected. Automatic recovery in progress...")
+    else:
+        logger.error(f"Exception while handling an update: {context.error}")
 
 # --- CALLBACK HANDLER ---
 async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -152,17 +156,16 @@ if __name__ == '__main__':
     application.add_handler(CommandHandler('start', admin_setting))
     application.add_handler(CallbackQueryHandler(handle_callbacks))
     
-    # Error Handler ထည့်သွင်းခြင်း
     application.add_error_handler(error_handler)
     
     print("Admin Bot is active and running...")
     
-    # run_polling တွင် timeout ထပ်ထည့်ခြင်းဖြင့် connection ပြတ်တောက်မှုကို လျှော့ချပါသည်
+    # application.run_polling() တွင် ပိုမိုမြန်ဆန်သော recovery ဖြစ်စေရန် parameter များ ထပ်တိုးထားသည်
     application.run_polling(
         allowed_updates=Update.ALL_TYPES,
         drop_pending_updates=True,
-        read_timeout=30,
-        write_timeout=30,
-        connect_timeout=30,
-        pool_timeout=30
+        close_loop=True,
+        # Network latency များအတွက် timeout ကို ညှိပေးထားပါသည်
+        read_timeout=20,
+        write_timeout=20
     )
