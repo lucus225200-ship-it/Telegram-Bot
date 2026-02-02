@@ -23,7 +23,7 @@ from telegram.constants import ChatMemberStatus, ParseMode
 
 # --- CONFIG ---
 # လူကြီးမင်း၏ Bot Token နှင့် Admin ID ကို ဤနေရာတွင် ထည့်ပါ
-ADMIN_BOT_TOKEN = "YOUR_BOT_TOKEN_HERE" 
+ADMIN_BOT_TOKEN = "8324982217:AAEQ85YcMran1X0UEirIISV831FR1jrzXG4" 
 ALLOWED_ADMINS = [8346273059] # Admin ID များထည့်ပါ
 DB_PATH = "storage/stats_v2.db"
 
