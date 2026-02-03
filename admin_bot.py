@@ -2,8 +2,6 @@ import os
 import sqlite3
 import logging
 import datetime
-import asyncio
-import re
 import calendar
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -17,7 +15,7 @@ from telegram.ext import (
 from telegram.constants import ChatMemberStatus, ParseMode
 
 # --- CONFIG ---
-# Note: Security Warning - It is better to use Environment Variables for tokens
+# Security Note: It is best practice to use os.environ.get("BOT_TOKEN")
 ADMIN_BOT_TOKEN = "8324982217:AAEQ85YcMran1X0UEirIISV831FR1jrzXG4" 
 ALLOWED_ADMINS = [8346273059]
 DB_PATH = "storage/stats_v2.db"
@@ -44,9 +42,13 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
 
 def start_web_server():
     try:
-        server = HTTPServer(('0.0.0.0', 8080), HealthCheckHandler)
+        # CRITICAL FIX: Use the PORT environment variable provided by the server
+        port = int(os.environ.get("PORT", 8080))
+        server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
+        logger.info(f"Web server started on port {port}")
         server.serve_forever()
-    except: pass
+    except Exception as e:
+        logger.error(f"Failed to start web server: {e}")
 
 def keep_alive():
     t = threading.Thread(target=start_web_server)
