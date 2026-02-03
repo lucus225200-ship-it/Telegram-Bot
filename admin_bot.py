@@ -17,6 +17,7 @@ from telegram.ext import (
 from telegram.constants import ChatMemberStatus, ParseMode
 
 # --- CONFIG ---
+# Note: Security Warning - It is better to use Environment Variables for tokens
 ADMIN_BOT_TOKEN = "8324982217:AAEQ85YcMran1X0UEirIISV831FR1jrzXG4" 
 ALLOWED_ADMINS = [8346273059]
 DB_PATH = "storage/stats_v2.db"
