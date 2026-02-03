@@ -1,4 +1,4 @@
-python-telegram-bot==20.*
+python-telegram-bot==20.8
 matplotlib
 numpy
 nest_asyncio
