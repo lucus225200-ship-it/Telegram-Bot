@@ -447,5 +447,6 @@ if __name__ == '__main__':
     
     app.add_handler(CallbackQueryHandler(main_callback))
     
-    logger.info("Bot is starting...")
-    app.run_polling()
+    logger.info("Bot is starting and cleaning up previous sessions...")
+    # Fix for "Conflict: terminated by other getUpdates request"
+    app.run_polling(drop_pending_updates=True)
