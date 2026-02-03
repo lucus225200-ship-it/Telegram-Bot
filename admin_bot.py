@@ -32,7 +32,7 @@ from telegram.constants import ParseMode, ChatMemberStatus
 # ==========================
 # CONFIG
 # ==========================
-ADMIN_BOT_TOKEN = "8324982217:AAEQ85YcMran1X0UEirIISV831FR1jrzXG4"
+ADMIN_BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"
 ALLOWED_ADMINS = [8346273059]
 DB_PATH = "storage/admin_bot.db"
 
@@ -218,37 +218,48 @@ async def show_stats(target, context):
 async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     mode = context.user_data.get('mode')
 
+    # ==========================
+    # ADD CHANNEL / GROUP (NO ADMIN CHECK)
+    # ==========================
     if mode == 'add':
         try:
-            chat = await context.bot.get_chat(update.message.text)
-            conn=sqlite3.connect(DB_PATH)
-            conn.execute("INSERT OR REPLACE INTO chats VALUES (?,?)",(str(chat.id),chat.title))
+            inp = update.message.text.strip()
+            chat = await context.bot.get_chat(inp)
+            conn = sqlite3.connect(DB_PATH)
+            conn.execute("INSERT OR REPLACE INTO chats VALUES (?,?)", (str(chat.id), chat.title))
             conn.commit(); conn.close()
             await update.message.reply_text(t("added"), reply_markup=main_menu())
-        except:
-            await update.message.reply_text(t("add_fail"))
+        except Exception as e:
+            await update.message.reply_text(f"❌ Add failed: {str(e)}")
         context.user_data.clear()
 
+    # ==========================
+    # AUTO POST FLOW
+    # ==========================
     elif mode == 'post':
-        context.user_data['text']=update.message.text
+        context.user_data['text'] = update.message.text
         await update.message.reply_text(t("send_time"))
-        context.user_data['mode']='time'
+        context.user_data['mode'] = 'time'
 
     elif mode == 'time':
         try:
-            minutes=int(update.message.text)
-            text=context.user_data['text']
-            conn=sqlite3.connect(DB_PATH)
-            chats=conn.execute("SELECT id FROM chats").fetchall()
+            minutes = int(update.message.text)
+            text = context.user_data['text']
+            conn = sqlite3.connect(DB_PATH)
+            chats = conn.execute("SELECT id FROM chats").fetchall()
             conn.close()
+
             async def job():
                 for (cid,) in chats:
-                    try: await context.bot.send_message(cid,text)
-                    except: pass
-            context.application.job_queue.run_once(lambda *_: asyncio.create_task(job()), minutes*60)
+                    try:
+                        await context.bot.send_message(cid, text)
+                    except Exception as e:
+                        logger.warning(f"Post failed to {cid}: {e}")
+
+            context.application.job_queue.run_once(lambda *_: asyncio.create_task(job()), minutes * 60)
             await update.message.reply_text(t("scheduled"), reply_markup=main_menu())
         except:
-            await update.message.reply_text("❌ Invalid number")
+            await update.message.reply_text("❌ Invalid time format")
         context.user_data.clear()
 
 # ==========================
