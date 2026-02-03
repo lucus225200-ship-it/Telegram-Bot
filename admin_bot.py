@@ -1,4 +1,3 @@
-
 import os
 import sqlite3
 import logging
@@ -56,7 +55,7 @@ def keep_alive():
     t.daemon = True
     t.start()
 
-# --- LANG DICT (FULL VERSION) ---
+# --- LANG DICT ---
 LANG_TEXT = {
     "my": {
         "welcome": "👋 *အက်ဒမင် ထိန်းချုပ်ရေးစင်တာ* မှ ကြိုဆိုပါတယ်။",
@@ -137,7 +136,6 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS chats (id TEXT PRIMARY KEY, title TEXT, type TEXT, username TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS chat_settings (chat_id TEXT PRIMARY KEY, comment TEXT DEFAULT 'ON', chat TEXT DEFAULT 'ON', reaction TEXT DEFAULT 'ON', protect TEXT DEFAULT 'OFF', ss TEXT DEFAULT 'ON', rc TEXT DEFAULT 'OFF', banned_active TEXT DEFAULT 'OFF', spam_filter TEXT DEFAULT 'OFF')''')
     c.execute('''CREATE TABLE IF NOT EXISTS banned_words (chat_id TEXT, word TEXT)''')
-    # Stats Data Table
     c.execute('''CREATE TABLE IF NOT EXISTS stats_data (chat_id TEXT, metric TEXT, date TEXT, count INTEGER DEFAULT 0, PRIMARY KEY (chat_id, metric, date))''')
     c.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('language', 'my')")
     conn.commit()
@@ -157,7 +155,6 @@ def set_current_lang(lang_code):
 
 def get_t(key):
     lang = get_current_lang()
-    # Fallback logic simplified
     d = LANG_TEXT.get(lang, LANG_TEXT['en'])
     return d.get(key, key)
 
@@ -178,7 +175,7 @@ def toggle_chat_setting(chat_id, key):
 
 # --- REAL STATS TRACKING ---
 def record_stat(chat_id, metric, count=1):
-    today = datetime.date.today().isoformat() # YYYY-MM-DD
+    today = datetime.date.today().isoformat() 
     conn = sqlite3.connect(DB_PATH)
     try:
         conn.execute("""
@@ -194,7 +191,6 @@ def record_stat(chat_id, metric, count=1):
 
 # --- STATS GENERATION (LIVE DATA) ---
 async def generate_stats_text(chat_id, metric_name, date_filter, context):
-    # Special Case: Total Followers (LIVE FETCH)
     if "Total Followers" in metric_name or "Followers" in metric_name or "粉丝" in metric_name:
         try:
             member_count = await context.bot.get_chat_member_count(chat_id)
@@ -202,13 +198,9 @@ async def generate_stats_text(chat_id, metric_name, date_filter, context):
         except Exception as e:
             return f"❌ Error fetching live count: {e}"
 
-    # For other metrics, fetch from DB (No Mock Data)
     conn = sqlite3.connect(DB_PATH)
     
-    # Simple mapping to handle different languages for DB Query
-    # DB stores keys like "Joined", "Left". But User sees "ဝင် (Joined)" etc.
-    # We will search using English keywords if present in the metric name
-    db_metric_key = "Joined" # Default fallback
+    db_metric_key = "Joined" 
     if "Left" in metric_name or "ထွက်" in metric_name or "离开" in metric_name: db_metric_key = "Left"
     elif "Joined" in metric_name or "ဝင်" in metric_name or "加入" in metric_name: db_metric_key = "Joined"
     elif "Mute" in metric_name: db_metric_key = "Mute"
@@ -216,11 +208,11 @@ async def generate_stats_text(chat_id, metric_name, date_filter, context):
     elif "Deletes" in metric_name: db_metric_key = "Msg Deletes"
     elif "Bans" in metric_name: db_metric_key = "Bans"
     
-    if len(date_filter.split('-')) == 3: # Specific Day
+    if len(date_filter.split('-')) == 3: 
         query = "SELECT date, count FROM stats_data WHERE chat_id=? AND metric LIKE ? AND date = ?"
         param = (str(chat_id), f"%{db_metric_key}%", date_filter)
         period_label = date_filter
-    else: # Whole Month
+    else: 
         query = "SELECT date, count FROM stats_data WHERE chat_id=? AND metric LIKE ? AND date LIKE ? ORDER BY date"
         param = (str(chat_id), f"%{db_metric_key}%", f"{date_filter}%")
         period_label = f"Month: {date_filter}"
@@ -242,7 +234,7 @@ async def generate_stats_text(chat_id, metric_name, date_filter, context):
     text += f"📅 Period: *{period_label}*\n\n"
     text += f"💎 *Total:* `{total_val}`\n\n"
     
-    if len(date_filter.split('-')) == 2: # Show daily breakdown for Month view
+    if len(date_filter.split('-')) == 2:
         text += "*🗓 Daily Breakdown:*\n"
         for date_key, count in sorted(stats_map.items()):
             day_only = date_key.split('-')[2]
@@ -252,19 +244,16 @@ async def generate_stats_text(chat_id, metric_name, date_filter, context):
 
 # --- TRACKING EVENTS HANDLER ---
 async def track_chat_member_updates(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # This function records Joined/Left events in real-time
     if not update.chat_member: return
     
     chat_id = update.chat_member.chat.id
     old_status = update.chat_member.old_chat_member.status
     new_status = update.chat_member.new_chat_member.status
     
-    # Joined
     if old_status in [ChatMemberStatus.LEFT, ChatMemberStatus.BANNED] and \
        new_status in [ChatMemberStatus.MEMBER, ChatMemberStatus.ADMINISTRATOR]:
         record_stat(chat_id, "Joined")
         
-    # Left
     elif old_status in [ChatMemberStatus.MEMBER, ChatMemberStatus.ADMINISTRATOR] and \
          new_status in [ChatMemberStatus.LEFT, ChatMemberStatus.BANNED]:
         record_stat(chat_id, "Left")
@@ -333,10 +322,29 @@ def get_metric_menu(chat_id, date_filter):
     keyboard.append([InlineKeyboardButton(get_t("back"), callback_data=back_cb)])
     return InlineKeyboardMarkup(keyboard)
 
-# --- HANDLERS ---
+# --- HANDLERS & COMMANDS ---
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ALLOWED_ADMINS: return
     await update.message.reply_text(get_t("welcome"), reply_markup=get_main_menu(), parse_mode=ParseMode.MARKDOWN)
+
+async def setting_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id not in ALLOWED_ADMINS: return
+    conn = sqlite3.connect(DB_PATH)
+    rows = conn.execute("SELECT id, title FROM chats").fetchall()
+    conn.close()
+    kb = [[InlineKeyboardButton(f"⚙️ {r[1]}", callback_data=f"manage_{r[0]}")] for r in rows]
+    kb.append([InlineKeyboardButton(get_t("add_chat"), callback_data="add_chat_start")])
+    kb.append([InlineKeyboardButton(get_t("back"), callback_data="main_menu")])
+    await update.message.reply_text("Select Chat:", reply_markup=InlineKeyboardMarkup(kb))
+
+async def graph_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id not in ALLOWED_ADMINS: return
+    conn = sqlite3.connect(DB_PATH)
+    rows = conn.execute("SELECT id, title FROM chats").fetchall()
+    conn.close()
+    kb = [[InlineKeyboardButton(f"📊 {r[1]}", callback_data=f"sel_month_{r[0]}")] for r in rows]
+    kb.append([InlineKeyboardButton(get_t("back"), callback_data="main_menu")])
+    await update.message.reply_text(get_t("stats_select"), reply_markup=InlineKeyboardMarkup(kb))
 
 # --- CONVERSATION: ADD CHAT ---
 async def add_chat_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -407,17 +415,23 @@ async def bw_view_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # --- AUTO POST ---
 async def post_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
+    if update.callback_query:
+        query = update.callback_query
+        await query.answer()
+        send_msg = query.edit_message_text
+    else:
+        # Command case
+        send_msg = update.message.reply_text
+        
     conn = sqlite3.connect(DB_PATH)
     chats = conn.execute("SELECT id, title FROM chats").fetchall()
     conn.close()
     if not chats: 
-        await query.edit_message_text("❌ No chats found.", reply_markup=get_main_menu())
+        await send_msg("❌ No chats found.", reply_markup=get_main_menu())
         return ConversationHandler.END
     kb = [[InlineKeyboardButton(c[1], callback_data=f"psel_{c[0]}")] for c in chats]
     kb.append([InlineKeyboardButton(get_t("back"), callback_data="main_menu")])
-    await query.edit_message_text("📢 Select Chat:", reply_markup=InlineKeyboardMarkup(kb))
+    await send_msg("📢 Select Chat:", reply_markup=InlineKeyboardMarkup(kb))
     return WAITING_POST_CONTENT
 
 async def post_chat_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -427,4 +441,233 @@ async def post_chat_selected(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await query.edit_message_text(get_t("post_send"))
     return WAITING_POST_CONTENT
 
-async def post_content_rcv(update: Update, context: ContextTypes.DEFAULT_TYPE
+async def post_content_rcv(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.photo:
+        context.user_data['post_type'] = 'photo'
+        context.user_data['post_content'] = {'file_id': update.message.photo[-1].file_id, 'caption': update.message.caption}
+    elif update.message.video:
+        context.user_data['post_type'] = 'video'
+        context.user_data['post_content'] = {'file_id': update.message.video.file_id, 'caption': update.message.caption}
+    else:
+        context.user_data['post_type'] = 'text'
+        context.user_data['post_content'] = update.message.text
+    await update.message.reply_text(get_t("post_time"))
+    return WAITING_POST_TIME
+
+def parse_time(t):
+    if t.lower() == 'now': return 1
+    m = re.search(r'(\d+)([mh])', t.lower())
+    if m:
+        val, unit = int(m.group(1)), m.group(2)
+        return val * 60 if unit == 'm' else val * 3600
+    return 0
+
+async def post_time_rcv(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['post_delay'] = parse_time(update.message.text)
+    await update.message.reply_text(get_t("post_del"))
+    return WAITING_POST_DELETE
+
+async def job_send_post(context: ContextTypes.DEFAULT_TYPE):
+    job = context.job
+    data = job.data 
+    chat_id, content, msg_type, del_delay = data['chat_id'], data['content'], data['type'], data['delete_delay']
+    try:
+        sent = None
+        if msg_type == 'text':
+            sent = await context.bot.send_message(chat_id=chat_id, text=content)
+        elif msg_type == 'photo':
+            sent = await context.bot.send_photo(chat_id=chat_id, photo=content['file_id'], caption=content.get('caption', ''))
+        elif msg_type == 'video':
+            sent = await context.bot.send_video(chat_id=chat_id, video=content['file_id'], caption=content.get('caption', ''))
+        
+        if sent and del_delay:
+            context.job_queue.run_once(job_delete_post, del_delay, data={'chat_id': chat_id, 'msg_id': sent.message_id})
+    except Exception as e:
+        logger.error(f"Post Job Error: {e}")
+
+async def job_delete_post(context: ContextTypes.DEFAULT_TYPE):
+    data = context.job.data
+    try:
+        await context.bot.delete_message(chat_id=data['chat_id'], message_id=data['msg_id'])
+    except Exception as e:
+        logger.error(f"Delete Job Error: {e}")
+
+async def post_delete_rcv(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    del_delay = None if update.message.text.lower() == 'no' else parse_time(update.message.text)
+    
+    context.job_queue.run_once(
+        job_send_post, 
+        context.user_data['post_delay'], 
+        data={
+            'chat_id': context.user_data['post_chat_id'],
+            'content': context.user_data['post_content'],
+            'type': context.user_data['post_type'],
+            'delete_delay': del_delay
+        }
+    )
+    await update.message.reply_text(get_t("post_success"), reply_markup=get_main_menu())
+    return ConversationHandler.END
+
+async def main_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    data = query.data
+    
+    if data == "main_menu":
+        await query.edit_message_text(get_t("welcome"), reply_markup=get_main_menu(), parse_mode=ParseMode.MARKDOWN)
+    
+    elif data == "nav_lang":
+        await query.edit_message_text("Language:", reply_markup=get_lang_menu())
+    
+    elif data.startswith("set_lang_"):
+        set_current_lang(data.split("_")[2])
+        await query.answer("Updated!")
+        await query.edit_message_text(get_t("welcome"), reply_markup=get_main_menu(), parse_mode=ParseMode.MARKDOWN)
+
+    elif data == "nav_setting":
+        conn = sqlite3.connect(DB_PATH)
+        rows = conn.execute("SELECT id, title FROM chats").fetchall()
+        conn.close()
+        kb = [[InlineKeyboardButton(f"⚙️ {r[1]}", callback_data=f"manage_{r[0]}")] for r in rows]
+        kb.append([InlineKeyboardButton(get_t("add_chat"), callback_data="add_chat_start")])
+        kb.append([InlineKeyboardButton(get_t("back"), callback_data="main_menu")])
+        await query.edit_message_text("Select Chat:", reply_markup=InlineKeyboardMarkup(kb))
+    
+    elif data.startswith("manage_"):
+        cid = data.split("_")[1]
+        lang = get_current_lang()
+        labels = LANG_TEXT.get(lang, LANG_TEXT['en']).get('settings_labels', LANG_TEXT['en']['settings_labels'])
+        
+        def btn(label, key):
+            status = "✅" if get_chat_setting(cid, key) == 'ON' else "❌"
+            return InlineKeyboardButton(f"{label} {status}", callback_data=f"toggle_{key}_{cid}")
+        
+        kb = [
+            [btn(labels["comment"], "comment"), btn(labels["chat"], "chat")],
+            [btn(labels["reaction"], "reaction"), btn(labels["protect"], "protect")],
+            [btn(labels["ss"], "ss"), btn(labels["rc"], "rc")],
+            [btn(labels["ban"], "banned_active"), btn(labels["spam"], "spam_filter")],
+            [InlineKeyboardButton("➕ Add Ban Word", callback_data=f"bw_add_{cid}"),
+             InlineKeyboardButton("👁️ List Ban Words", callback_data=f"bw_view_{cid}")],
+            [InlineKeyboardButton(get_t("back"), callback_data="nav_setting")]
+        ]
+        await query.edit_message_text(f"⚙️ ID: {cid}", reply_markup=InlineKeyboardMarkup(kb))
+        
+    elif data.startswith("toggle_"):
+        parts = data.split("_")
+        cid = parts[2]
+        toggle_chat_setting(cid, parts[1])
+        await query.answer("Updated!")
+        
+        # Manually Re-render Menu (Avoids Infinite Recursion)
+        lang = get_current_lang()
+        labels = LANG_TEXT.get(lang, LANG_TEXT['en']).get('settings_labels', LANG_TEXT['en']['settings_labels'])
+        def btn(label, key):
+            status = "✅" if get_chat_setting(cid, key) == 'ON' else "❌"
+            return InlineKeyboardButton(f"{label} {status}", callback_data=f"toggle_{key}_{cid}")
+        kb = [
+            [btn(labels["comment"], "comment"), btn(labels["chat"], "chat")],
+            [btn(labels["reaction"], "reaction"), btn(labels["protect"], "protect")],
+            [btn(labels["ss"], "ss"), btn(labels["rc"], "rc")],
+            [btn(labels["ban"], "banned_active"), btn(labels["spam"], "spam_filter")],
+            [InlineKeyboardButton("➕ Add Ban Word", callback_data=f"bw_add_{cid}"),
+             InlineKeyboardButton("👁️ List Ban Words", callback_data=f"bw_view_{cid}")],
+            [InlineKeyboardButton(get_t("back"), callback_data="nav_setting")]
+        ]
+        await query.edit_message_text(f"⚙️ ID: {cid}", reply_markup=InlineKeyboardMarkup(kb))
+
+    elif data == "add_chat_start":
+        return # Handled by Conversation
+
+    elif data.startswith("bw_add_"):
+        return # Handled by Conversation
+    
+    elif data.startswith("bw_view_"):
+        await bw_view_list(update, context)
+
+    elif data == "nav_graph_chat_list":
+        conn = sqlite3.connect(DB_PATH)
+        rows = conn.execute("SELECT id, title FROM chats").fetchall()
+        conn.close()
+        kb = [[InlineKeyboardButton(f"📊 {r[1]}", callback_data=f"sel_month_{r[0]}")] for r in rows]
+        kb.append([InlineKeyboardButton(get_t("back"), callback_data="main_menu")])
+        await query.edit_message_text(get_t("stats_select"), reply_markup=InlineKeyboardMarkup(kb))
+
+    elif data.startswith("sel_month_"):
+        await query.edit_message_text(get_t("month_select"), reply_markup=get_month_menu(data.split("_")[2]))
+
+    elif data.startswith("sel_day_"):
+        parts = data.split("_")
+        await query.edit_message_text(get_t("day_select"), reply_markup=get_day_menu(parts[2], parts[3]))
+
+    elif data.startswith("sel_met_"):
+        parts = data.split("_")
+        await query.edit_message_text(get_t("metric_select"), reply_markup=get_metric_menu(parts[2], parts[3]))
+
+    elif data.startswith("fin_"):
+        try:
+            _, payload = data.split("_", 1)
+            cid, date_filter, metric = payload.split("|")
+            await query.answer(get_t("graph_gen"))
+            report_text = await generate_stats_text(cid, metric, date_filter, context) 
+            await query.edit_message_text(
+                text=report_text, 
+                reply_markup=get_metric_menu(cid, date_filter),
+                parse_mode=ParseMode.MARKDOWN
+            )
+        except Exception as e:
+            logger.error(f"Stats Error: {e}")
+            await query.answer("Error.")
+
+    elif data == "nav_post":
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("➕ Create Post", callback_data="post_create")],
+            [InlineKeyboardButton(get_t("back"), callback_data="main_menu")]
+        ])
+        await query.edit_message_text("Auto Post:", reply_markup=kb)
+
+if __name__ == '__main__':
+    init_db()
+    keep_alive()
+    
+    app = ApplicationBuilder().token(ADMIN_BOT_TOKEN).build()
+    
+    # Handlers
+    app.add_handler(CommandHandler('start', start_command))
+    app.add_handler(CommandHandler('setting', setting_command))
+    app.add_handler(CommandHandler('graph', graph_command))
+    # Note: /post is handled by the conversation entry point below
+    
+    # Conversations
+    conv_add_chat = ConversationHandler(
+        entry_points=[CallbackQueryHandler(add_chat_start, pattern="^add_chat_start$")],
+        states={WAITING_CHAT_LINK: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_chat_save)]},
+        fallbacks=[CallbackQueryHandler(main_callback, pattern="^main_menu$")]
+    )
+    conv_bw = ConversationHandler(
+        entry_points=[CallbackQueryHandler(bw_start, pattern="^bw_add_")],
+        states={WAITING_BANNED_WORD: [MessageHandler(filters.TEXT & ~filters.COMMAND, bw_save)]},
+        fallbacks=[CallbackQueryHandler(main_callback, pattern="^main_menu$")]
+    )
+    conv_post = ConversationHandler(
+        entry_points=[
+            CallbackQueryHandler(post_start, pattern="^post_create$"),
+            CommandHandler('post', post_start)
+        ],
+        states={
+            WAITING_POST_CONTENT: [CallbackQueryHandler(post_chat_selected, pattern="^psel_"), MessageHandler(filters.ALL & ~filters.COMMAND, post_content_rcv)],
+            WAITING_POST_TIME: [MessageHandler(filters.TEXT & ~filters.COMMAND, post_time_rcv)],
+            WAITING_POST_DELETE: [MessageHandler(filters.TEXT & ~filters.COMMAND, post_delete_rcv)]
+        },
+        fallbacks=[CallbackQueryHandler(main_callback, pattern="^main_menu$")],
+        allow_reentry=True
+    )
+
+    app.add_handler(conv_add_chat)
+    app.add_handler(conv_bw)
+    app.add_handler(conv_post)
+    
+    # Main Callback & Tracker
+    app.add_handler(CallbackQueryHandler(main_callback))
+    app.add_handler(ChatMemberHandler(track_chat_member_updates, ChatMemberHandler.CHAT_MEMBER))
+
+    print("🚀
