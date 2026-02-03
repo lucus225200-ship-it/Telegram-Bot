@@ -10,11 +10,8 @@ import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from collections import defaultdict
 
-# Graph Library
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
-import matplotlib.dates as mdates
+# Graph Library removed as per request (No Images)
+# import matplotlib...
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
 from telegram.ext import (
@@ -80,7 +77,7 @@ LANG_TEXT = {
         "back": "🔙 နောက်သို့ ပြန်သွားရန်",
         "stats_select": "📈 စာရင်းဇယား ကြည့်လိုသော ချတ်ကို ရွေးပါ -",
         "metric_select": "🔎 ကြည့်လိုသော စာရင်းအမျိုးအစားကို ရွေးပါ -",
-        "graph_gen": "⏳ Telegram Analytics ပုံစံ Dashboard ကို ထုတ်ယူနေပါသည်...",
+        "graph_gen": "⏳ စာရင်းဇယား အချက်အလက်များ တွက်ချက်နေပါသည်...",
         "post_send": "📝 တင်လိုသော စာသား သို့မဟုတ် ဓာတ်ပုံ ပေးပို့ပါ:",
         "post_time": "🕒 ဘယ်အချိန်မှာ တင်မလဲ? (ဥပမာ- now, 10m, 1h)",
         "post_del": "🗑 ဘယ်အချိန်မှာ ပြန်ဖျက်မလဲ? (ဥပမာ- no, 1h, 24h)",
@@ -116,7 +113,7 @@ LANG_TEXT = {
         "back": "🔙 Back",
         "stats_select": "📈 Select Chat for Stats:",
         "metric_select": "🔎 Select Metric Type:",
-        "graph_gen": "⏳ Generating Telegram Analytics Dashboard...",
+        "graph_gen": "⏳ Fetching Live Statistics...",
         "post_send": "📝 Send your post content (Text/Photo):",
         "post_time": "🕒 When to post? (e.g., now, 10m, 1h)",
         "post_del": "🗑 When to delete? (e.g., no, 1h, 24h)",
@@ -152,7 +149,7 @@ LANG_TEXT = {
         "back": "🔙 返回",
         "stats_select": "📈 选择要查看统计的聊天：",
         "metric_select": "🔎 选择指标类型：",
-        "graph_gen": "⏳ 正在生成 Telegram 分析仪表板...",
+        "graph_gen": "⏳ 正在获取实时统计数据...",
         "post_send": "📝 发送帖子内容（文字/图片）：",
         "post_time": "🕒 什么时候发布？(例如: now, 10m, 1h)",
         "post_del": "🗑 什么时候删除？(例如: no, 1h, 24h)",
@@ -237,11 +234,8 @@ def toggle_chat_setting(chat_id, key):
     conn.close()
     return new_v
 
-# --- LIVE GRAPH GENERATION (TELEGRAM ANALYTICS STYLE) ---
-async def generate_live_graph(chat_id, metric_name):
-    # Use Dark Background for "Dashboard" look
-    plt.style.use('dark_background')
-    
+# --- LIVE TEXT STATS GENERATION (NO IMAGE) ---
+async def generate_live_stats_text(chat_id, metric_name):
     conn = sqlite3.connect(DB_PATH)
     now = datetime.datetime.now()
     month_str = now.strftime("%Y-%m")
@@ -249,58 +243,47 @@ async def generate_live_graph(chat_id, metric_name):
     data = conn.execute(query, (str(chat_id), metric_name, f"{month_str}%")).fetchall()
     conn.close()
 
-    dates, counts = [], []
+    stats_map = {}
     if not data:
-        # Generate Realistic Time-Series Mock Data if DB empty
+        # Generate Realistic Time-Series Mock Data if DB empty (for Demo)
         current_val = random.randint(100, 500)
         for i in range(1, now.day + 1):
-            dates.append(datetime.date(now.year, now.month, i))
-            # Simulate realistic fluctuation
+            d_str = datetime.date(now.year, now.month, i).strftime("%Y-%m-%d")
             change = random.randint(-20, 30)
             current_val = max(0, current_val + change)
-            counts.append(current_val)
+            stats_map[d_str] = current_val
     else:
         for d_str, c in data:
-            dates.append(datetime.datetime.strptime(d_str, "%Y-%m-%d").date())
-            counts.append(c)
+            stats_map[d_str] = c
 
-    # Setup Figure
-    fig, ax = plt.subplots(figsize=(10, 5))
-    fig.patch.set_facecolor('#1e2124') # Discord/Telegram dark gray
-    ax.set_facecolor('#1e2124')
+    sorted_keys = sorted(stats_map.keys())
+    total_val = sum(stats_map.values())
+    today_str = now.strftime("%Y-%m-%d")
+    today_val = stats_map.get(today_str, 0)
+    yesterday_str = (now - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+    yesterday_val = stats_map.get(yesterday_str, 0)
+
+    # Build Detailed Text Report
+    text = f"📊 *{metric_name} Overview*\n"
+    text += f"📅 Period: {now.strftime('%B %Y')}\n\n"
     
-    # Plot Line
-    ax.plot(dates, counts, marker='o', color='#4ea4f6', linewidth=2.5, markersize=5, label=metric_name)
+    text += f"💎 *Total:* `{total_val}`\n"
+    text += f"🔥 *Today:* `{today_val}`\n"
+    text += f"⏮ *Yesterday:* `{yesterday_val}`\n"
     
-    # Fill Area under line (Gradient-like effect using alpha)
-    ax.fill_between(dates, counts, color='#4ea4f6', alpha=0.15)
+    # Calculate Trend
+    trend_icon = "➖"
+    if today_val > yesterday_val: trend_icon = "↗️ Up"
+    elif today_val < yesterday_val: trend_icon = "↘️ Down"
+    text += f"📈 *Trend:* {trend_icon}\n\n"
     
-    # Formatting
-    ax.xaxis.set_major_formatter(mdates.DateFormatter('%d %b'))
-    ax.xaxis.set_major_locator(mdates.DayLocator(interval=max(1, len(dates)//7)))
-    
-    ax.set_title(f"{metric_name} Statistics", fontsize=16, color='white', fontweight='bold', pad=20)
-    ax.grid(True, linestyle='--', alpha=0.1, color='white')
-    
-    # Remove borders
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
-    ax.spines['bottom'].set_color('#555555')
-    ax.spines['left'].set_color('#555555')
-    
-    ax.tick_params(axis='x', colors='#aaaaaa')
-    ax.tick_params(axis='y', colors='#aaaaaa')
-    
-    # Legend
-    ax.legend(loc='upper left', frameon=False, labelcolor='white')
-    
-    plt.tight_layout()
-    
-    buf = io.BytesIO()
-    plt.savefig(buf, format='png', facecolor=fig.get_facecolor(), edgecolor='none')
-    buf.seek(0)
-    plt.close()
-    return buf
+    text += "*🗓 Recent Activity (Last 10 Days):*\n"
+    recent = sorted_keys[-10:] if len(sorted_keys) > 10 else sorted_keys
+    for k in recent:
+        count = stats_map[k]
+        text += f"▪️ {k}:  `{count}`\n"
+        
+    return text
 
 # --- KEYBOARDS ---
 def get_main_menu():
@@ -510,9 +493,16 @@ async def main_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parts = data.split("_")
         cid, metric = parts[1], parts[2]
         await query.answer(get_t("graph_gen"))
-        buf = await generate_live_graph(cid, metric)
-        await context.bot.send_photo(chat_id=update.effective_chat.id, photo=buf, caption=f"📅 {metric} (Live Dashboard)")
-        await context.bot.send_message(chat_id=update.effective_chat.id, text=get_t("metric_select"), reply_markup=get_metric_menu(cid))
+        
+        # Generate TEXT Report instead of Image
+        report_text = await generate_live_stats_text(cid, metric)
+        
+        # Edit Message with Text Report
+        await query.edit_message_text(
+            text=report_text, 
+            reply_markup=get_metric_menu(cid),
+            parse_mode=ParseMode.MARKDOWN
+        )
 
     elif data == "nav_post":
         kb = InlineKeyboardMarkup([
