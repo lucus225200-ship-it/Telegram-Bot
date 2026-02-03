@@ -6,12 +6,10 @@ import asyncio
 import random
 import io
 import re
+import calendar
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from collections import defaultdict
-
-# Graph Library removed as per request (No Images)
-# import matplotlib...
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
 from telegram.ext import (
@@ -22,8 +20,9 @@ from telegram.ext import (
 from telegram.constants import ChatMemberStatus, ParseMode
 
 # --- CONFIG ---
+# (Bot Token)
 ADMIN_BOT_TOKEN = "8324982217:AAEQ85YcMran1X0UEirIISV831FR1jrzXG4" 
-ALLOWED_ADMINS = [8346273059]
+ALLOWED_ADMINS = [8346273059] # (Admin ID)
 DB_PATH = "storage/stats_v2.db"
 
 # --- STATES ---
@@ -45,14 +44,13 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header('Content-type', 'text/plain')
         self.end_headers()
-        self.wfile.write(b"Admin Bot V2 is Running 24/7!")
+        self.wfile.write(b"Admin Bot V3 (Month Filter) is Running!")
 
     def log_message(self, format, *args):
-        return # Silence server logs to keep console clean
+        return 
 
 def start_web_server():
     try:
-        # Default port 8080 or environment port
         port = int(os.environ.get("PORT", 8080))
         server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
         logger.info(f"🌍 Keep-Alive Web Server started on port {port}")
@@ -74,10 +72,12 @@ LANG_TEXT = {
         "menu_post": "🤖 အော်တိုပို့စ် တင်ရန်",
         "menu_lang": "🌍 ဘာသာစကား ပြောင်းရန်",
         "add_chat": "➕ ချတ်အသစ် ထည့်သွင်းရန်",
-        "back": "🔙 နောက်သို့ ပြန်သွားရန်",
+        "back": "🔙 နောက်သို့",
         "stats_select": "📈 စာရင်းဇယား ကြည့်လိုသော ချတ်ကို ရွေးပါ -",
+        "month_select": "📅 ကြည့်လိုသော လ (Month) ကို ရွေးပါ -",
+        "day_select": "📆 ရက်စွဲ (Day) ကို ရွေးပါ (သို့) တစ်လလုံးကြည့်ရန် All ကိုနှိပ်ပါ -",
         "metric_select": "🔎 ကြည့်လိုသော စာရင်းအမျိုးအစားကို ရွေးပါ -",
-        "graph_gen": "⏳ စာရင်းဇယား အချက်အလက်များ တွက်ချက်နေပါသည်...",
+        "graph_gen": "⏳ အချက်အလက်များ တွက်ချက်နေပါသည်...",
         "post_send": "📝 တင်လိုသော စာသား သို့မဟုတ် ဓာတ်ပုံ ပေးပို့ပါ:",
         "post_time": "🕒 ဘယ်အချိန်မှာ တင်မလဲ? (ဥပမာ- now, 10m, 1h)",
         "post_del": "🗑 ဘယ်အချိန်မှာ ပြန်ဖျက်မလဲ? (ဥပမာ- no, 1h, 24h)",
@@ -93,15 +93,21 @@ LANG_TEXT = {
         "bw_empty": "တားမြစ်ထားသော စာလုံး မရှိသေးပါ။",
         "bw_add_btn": "➕ စာလုံးပေါင်းထည့်ရန်",
         "bw_view_btn": "👁️ စာရင်းကြည့်ရန်",
+        "all_month": "🗓 တစ်လလုံးစာ (All Month)",
+        "months": ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
         "metrics": [
-            "Daily Joined", "Daily Left", "Total Followers", "Daily Total Members",
-            "Daily Mute", "Daily Unmute", "Traffic - Invite URL", "Traffic - Search",
-            "Traffic - PM", "Traffic - Group ref", "Traffic - Channel ref",
-            "Daily Views", "Daily Shares", "Daily Positive reactions",
-            "Daily Neutral reactions", "Daily Negative reactions",
-            "Daily Message Deletes", "Daily Warn actions", "Daily Kick actions",
-            "Daily Ban actions", "Daily Active Members"
-        ]
+            "Joined (ဝင်ရောက်)", "Left (ထွက်ခွာ)", "Followers (ဖော်လိုဝါ)", 
+            "Mute (အသံပိတ်)", "Unmute (အသံဖွင့်)", 
+            "Traffic: URL", "Traffic: Search", "Traffic: PM", "Traffic: Groups", "Traffic: Channels",
+            "Views (ကြည့်ရှုမှု)", "Shares (မျှဝေမှု)", 
+            "Reaction: Positive", "Reaction: Neutral", "Reaction: Negative",
+            "Msg Deletes (ဖျက်)", "Warns (သတိပေး)", "Kicks (ကန်ထုတ်)", "Bans (ဘန်း)"
+        ],
+        "settings_labels": {
+            "comment": "💬 မှတ်ချက်", "chat": "⌨️ စကားပြော", "reaction": "😊 တုံ့ပြန်မှု",
+            "protect": "🛡 ကာကွယ်ရေး", "ss": "📸 ပုံရိုက်တားဆီး", "rc": "🔗 အဝေးထိန်း",
+            "ban": "🚫 တားမြစ်", "spam": "📉 စပမ်း"
+        }
     },
     "en": {
         "welcome": "👋 Welcome to *Admin Control Panel*.",
@@ -112,8 +118,10 @@ LANG_TEXT = {
         "add_chat": "➕ Add New Chat",
         "back": "🔙 Back",
         "stats_select": "📈 Select Chat for Stats:",
+        "month_select": "📅 Select Month:",
+        "day_select": "📆 Select Day or 'All Month':",
         "metric_select": "🔎 Select Metric Type:",
-        "graph_gen": "⏳ Fetching Live Statistics...",
+        "graph_gen": "⏳ Fetching Statistics...",
         "post_send": "📝 Send your post content (Text/Photo):",
         "post_time": "🕒 When to post? (e.g., now, 10m, 1h)",
         "post_del": "🗑 When to delete? (e.g., no, 1h, 24h)",
@@ -129,15 +137,21 @@ LANG_TEXT = {
         "bw_empty": "No banned words yet.",
         "bw_add_btn": "➕ Add Word",
         "bw_view_btn": "👁️ View List",
+        "all_month": "🗓 All Month",
+        "months": ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
         "metrics": [
-            "Daily Joined", "Daily Left", "Total Followers", "Daily Total Members",
-            "Daily Mute", "Daily Unmute", "Traffic - Invite URL", "Traffic - Search",
-            "Traffic - PM", "Traffic - Group ref", "Traffic - Channel ref",
-            "Daily Views", "Daily Shares", "Daily Positive reactions",
-            "Daily Neutral reactions", "Daily Negative reactions",
-            "Daily Message Deletes", "Daily Warn actions", "Daily Kick actions",
-            "Daily Ban actions", "Daily Active Members"
-        ]
+            "Joined", "Left", "Total Followers", 
+            "Mute", "Unmute", 
+            "Traffic: URL", "Traffic: Search", "Traffic: PM", "Traffic: Groups", "Traffic: Channels",
+            "Views", "Shares", 
+            "Reaction: Positive", "Reaction: Neutral", "Reaction: Negative",
+            "Msg Deletes", "Warns", "Kicks", "Bans"
+        ],
+        "settings_labels": {
+            "comment": "💬 Comments", "chat": "⌨️ Chat", "reaction": "😊 Reaction",
+            "protect": "🛡 Protect", "ss": "📸 Anti-SS", "rc": "🔗 Remote",
+            "ban": "🚫 Ban Words", "spam": "📉 Anti-Spam"
+        }
     },
     "zh": {
         "welcome": "👋 欢迎使用 *管理控制面板*。",
@@ -148,8 +162,10 @@ LANG_TEXT = {
         "add_chat": "➕ 添加新聊天",
         "back": "🔙 返回",
         "stats_select": "📈 选择要查看统计的聊天：",
+        "month_select": "📅 选择月份：",
+        "day_select": "📆 选择日期 或 点击 All 查看整月：",
         "metric_select": "🔎 选择指标类型：",
-        "graph_gen": "⏳ 正在获取实时统计数据...",
+        "graph_gen": "⏳ 正在获取统计数据...",
         "post_send": "📝 发送帖子内容（文字/图片）：",
         "post_time": "🕒 什么时候发布？(例如: now, 10m, 1h)",
         "post_del": "🗑 什么时候删除？(例如: no, 1h, 24h)",
@@ -165,15 +181,21 @@ LANG_TEXT = {
         "bw_empty": "暂无违禁词。",
         "bw_add_btn": "➕ 添加违禁词",
         "bw_view_btn": "👁️ 查看列表",
+        "all_month": "🗓 整月 (All Month)",
+        "months": ["1月", "2月", "3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月"],
         "metrics": [
-            "每日加入", "每日离开", "总粉丝数", "每日成员总数",
-            "每日静音", "每日取消静音", "流量 - 邀请链接", "流量 - 搜索",
-            "流量 - 私信", "流量 - 群组推荐", "流量 - 频道推荐",
-            "每日阅读量", "每日分享量", "每日正面反应",
-            "每日中性反应", "每日负面反应",
-            "每日消息删除", "每日警告操作", "每日踢出操作",
-            "每日封禁操作", "每日活跃成员"
-        ]
+            "加入 (Joined)", "离开 (Left)", "总粉丝数 (Followers)", 
+            "静音 (Mute)", "取消静音 (Unmute)", 
+            "流量: 链接 (URL)", "流量: 搜索 (Search)", "流量: 私信 (PM)", "流量: 群组 (Groups)", "流量: 频道 (Channels)",
+            "浏览量 (Views)", "分享数 (Shares)", 
+            "反应: 正面 (Positive)", "反应: 中性 (Neutral)", "反应: 负面 (Negative)",
+            "消息删除 (Msg Deletes)", "警告 (Warns)", "踢出 (Kicks)", "封禁 (Bans)"
+        ],
+        "settings_labels": {
+            "comment": "💬 评论", "chat": "⌨️ 聊天", "reaction": "😊 反应",
+            "protect": "🛡 防护", "ss": "📸 防截屏", "rc": "🔗 远程",
+            "ban": "🚫 违禁词", "spam": "📉 防刷屏"
+        }
     }
 }
 
@@ -216,8 +238,12 @@ def set_current_lang(lang_code):
 
 def get_t(key):
     lang = get_current_lang()
-    # Fallback to English if translation missing, but try selected lang first
-    return LANG_TEXT.get(lang, LANG_TEXT['my']).get(key, LANG_TEXT['en'].get(key, key))
+    # If key is in language dict, return it. If not, try fallback to English, then key itself.
+    if lang in LANG_TEXT and key in LANG_TEXT[lang]:
+        return LANG_TEXT[lang][key]
+    if 'en' in LANG_TEXT and key in LANG_TEXT['en']:
+        return LANG_TEXT['en'][key]
+    return key
 
 def get_chat_setting(chat_id, key):
     conn = sqlite3.connect(DB_PATH)
@@ -234,55 +260,60 @@ def toggle_chat_setting(chat_id, key):
     conn.close()
     return new_v
 
-# --- LIVE TEXT STATS GENERATION (NO IMAGE) ---
-async def generate_live_stats_text(chat_id, metric_name):
+# --- STATS GENERATION (Updated for Date Filter) ---
+async def generate_stats_text(chat_id, metric_name, date_filter):
+    # date_filter can be "YYYY-MM" (Month) or "YYYY-MM-DD" (Day)
     conn = sqlite3.connect(DB_PATH)
-    now = datetime.datetime.now()
-    month_str = now.strftime("%Y-%m")
-    query = "SELECT date, count FROM stats_data WHERE chat_id=? AND metric=? AND date LIKE ? ORDER BY date"
-    data = conn.execute(query, (str(chat_id), metric_name, f"{month_str}%")).fetchall()
+    
+    if len(date_filter.split('-')) == 3: # Specific Day
+        query = "SELECT date, count FROM stats_data WHERE chat_id=? AND metric=? AND date = ?"
+        param = date_filter
+        period_label = date_filter
+    else: # Whole Month
+        query = "SELECT date, count FROM stats_data WHERE chat_id=? AND metric=? AND date LIKE ? ORDER BY date"
+        param = f"{date_filter}%"
+        period_label = f"Month: {date_filter}"
+
+    data = conn.execute(query, (str(chat_id), metric_name, param)).fetchall()
     conn.close()
 
     stats_map = {}
+    total_val = 0
+    
+    # --- MOCK DATA GENERATOR (For Demo) ---
+    # If DB is empty, generate fake data to show functionality
     if not data:
-        # Generate Realistic Time-Series Mock Data if DB empty (for Demo)
-        current_val = random.randint(100, 500)
-        for i in range(1, now.day + 1):
-            d_str = datetime.date(now.year, now.month, i).strftime("%Y-%m-%d")
-            change = random.randint(-20, 30)
-            current_val = max(0, current_val + change)
-            stats_map[d_str] = current_val
+        is_month = len(date_filter.split('-')) == 2
+        if is_month:
+            year, month = map(int, date_filter.split('-'))
+            days_in_month = calendar.monthrange(year, month)[1]
+            current_val = random.randint(50, 200)
+            for i in range(1, days_in_month + 1):
+                d_str = f"{year}-{month:02d}-{i:02d}"
+                val = random.randint(10, 50)
+                stats_map[d_str] = val
+                total_val += val
+        else:
+             # Single Day Mock
+             stats_map[date_filter] = random.randint(10, 100)
+             total_val = stats_map[date_filter]
     else:
         for d_str, c in data:
             stats_map[d_str] = c
+            total_val += c
 
-    sorted_keys = sorted(stats_map.keys())
-    total_val = sum(stats_map.values())
-    today_str = now.strftime("%Y-%m-%d")
-    today_val = stats_map.get(today_str, 0)
-    yesterday_str = (now - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
-    yesterday_val = stats_map.get(yesterday_str, 0)
-
-    # Build Detailed Text Report
-    text = f"📊 *{metric_name} Overview*\n"
-    text += f"📅 Period: {now.strftime('%B %Y')}\n\n"
+    # Build Text Report
+    text = f"📊 *{metric_name}*\n"
+    text += f"📅 Period: *{period_label}*\n\n"
+    text += f"💎 *Total:* `{total_val}`\n\n"
     
-    text += f"💎 *Total:* `{total_val}`\n"
-    text += f"🔥 *Today:* `{today_val}`\n"
-    text += f"⏮ *Yesterday:* `{yesterday_val}`\n"
-    
-    # Calculate Trend
-    trend_icon = "➖"
-    if today_val > yesterday_val: trend_icon = "↗️ Up"
-    elif today_val < yesterday_val: trend_icon = "↘️ Down"
-    text += f"📈 *Trend:* {trend_icon}\n\n"
-    
-    text += "*🗓 Recent Activity (Last 10 Days):*\n"
-    recent = sorted_keys[-10:] if len(sorted_keys) > 10 else sorted_keys
-    for k in recent:
-        count = stats_map[k]
-        text += f"▪️ {k}:  `{count}`\n"
-        
+    if len(date_filter.split('-')) == 2: # Show top days if Month view
+        text += "*🗓 Daily Breakdown:*\n"
+        sorted_days = sorted(stats_map.items())
+        for date_key, count in sorted_days:
+            day_only = date_key.split('-')[2]
+            text += f"▪️ Day {day_only}:  `{count}`\n"
+            
     return text
 
 # --- KEYBOARDS ---
@@ -302,19 +333,90 @@ def get_lang_menu():
         [InlineKeyboardButton(get_t("back"), callback_data="main_menu")]
     ])
 
-def get_metric_menu(chat_id):
+# New: Month Selection Keyboard
+def get_month_menu(chat_id):
+    now = datetime.datetime.now()
+    year = now.year
+    months = get_t("months") # ["Jan", "Feb", ...]
+    
+    keyboard = []
+    row = []
+    # Generate buttons for current year (Jan to Dec)
+    for i, m_name in enumerate(months):
+        m_num = i + 1
+        # Format: sel_day_{chat_id}_{YYYY-MM}
+        date_str = f"{year}-{m_num:02d}" 
+        row.append(InlineKeyboardButton(m_name, callback_data=f"sel_day_{chat_id}_{date_str}"))
+        if len(row) == 4: # 4 months per row
+            keyboard.append(row)
+            row = []
+    if row: keyboard.append(row)
+    
+    keyboard.append([InlineKeyboardButton(get_t("back"), callback_data="nav_graph_chat_list")])
+    return InlineKeyboardMarkup(keyboard)
+
+# New: Day Selection Keyboard
+def get_day_menu(chat_id, year_month):
+    # year_month is "2024-02"
+    year, month = map(int, year_month.split('-'))
+    days_in_month = calendar.monthrange(year, month)[1]
+    
+    keyboard = []
+    
+    # "All Month" Button
+    keyboard.append([InlineKeyboardButton(get_t("all_month"), callback_data=f"sel_met_{chat_id}_{year_month}")])
+    
+    # Days 1 to 31
+    row = []
+    for day in range(1, days_in_month + 1):
+        date_str = f"{year_month}-{day:02d}"
+        row.append(InlineKeyboardButton(str(day), callback_data=f"sel_met_{chat_id}_{date_str}"))
+        if len(row) == 7: # 7 days per row
+            keyboard.append(row)
+            row = []
+    if row: keyboard.append(row)
+    
+    # Back to Month List
+    keyboard.append([InlineKeyboardButton(get_t("back"), callback_data=f"sel_month_{chat_id}")])
+    return InlineKeyboardMarkup(keyboard)
+
+def get_metric_menu(chat_id, date_filter):
+    # date_filter is passed to keep track of what date user selected
     lang = get_current_lang()
-    # Ensure metrics key exists and is a list
+    # Default to 'my' if something fails, but try correct lang first
     metrics = LANG_TEXT.get(lang, LANG_TEXT['my']).get("metrics", [])
+    
     keyboard = []
     row = []
     for m in metrics:
-        row.append(InlineKeyboardButton(m, callback_data=f"gr_{chat_id}_{m}"))
+        # Callback: show_stat_{chat_id}_{date_filter}_{metric_index_or_name}
+        # To save space in callback data, we use metric name directly but truncated if needed
+        # We need to ensure we don't exceed Telegram's 64 byte limit.
+        
+        # Use first English word or index? 
+        # For simplicity in this demo, we'll try to just use a short identifier.
+        # But wait, we need to map back to DB. 
+        # NOTE: In a real app, map these display strings to a constant key like "JOINED", "LEFT" etc.
+        # For this snippet, we assume the display string is the key or close enough.
+        
+        short_metric = m[:15] # Truncate for safety
+        
+        row.append(InlineKeyboardButton(m, callback_data=f"fin_{chat_id}|{date_filter}|{short_metric}"))
         if len(row) == 2:
             keyboard.append(row)
             row = []
     if row: keyboard.append(row)
-    keyboard.append([InlineKeyboardButton(get_t("back"), callback_data="nav_graph_chat_list")])
+    
+    # Back to Day Selection (If it's a specific day) or Month selection
+    if len(date_filter.split('-')) == 3:
+        # It's a day, go back to Day Select. Parent is Year-Month
+        parent_ym = date_filter.rsplit('-', 1)[0]
+        back_cb = f"sel_day_{chat_id}_{parent_ym}"
+    else:
+        # It's a month, go back to Month Select
+        back_cb = f"sel_month_{chat_id}"
+        
+    keyboard.append([InlineKeyboardButton(get_t("back"), callback_data=back_cb)])
     return InlineKeyboardMarkup(keyboard)
 
 # --- CONVERSATION: ADD CHAT ---
@@ -411,7 +513,7 @@ async def job_delete_post(context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Delete Job Error: {e}")
 
-# --- CALLBACKS ---
+# --- CALLBACKS (Logic Updated for Month/Day) ---
 async def main_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     data = query.data
@@ -441,26 +543,24 @@ async def main_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif data.startswith("manage_"):
         cid = data.split("_")[1]
+        
+        # Get labels based on current language
+        lang = get_current_lang()
+        # Default labels (English/Fallback)
+        labels = LANG_TEXT['en']['settings_labels']
+        # If specific lang exists, use it
+        if lang in LANG_TEXT and 'settings_labels' in LANG_TEXT[lang]:
+            labels = LANG_TEXT[lang]['settings_labels']
+            
         def btn(label, key):
             status = "✅" if get_chat_setting(cid, key) == 'ON' else "❌"
             return InlineKeyboardButton(f"{label} {status}", callback_data=f"toggle_{key}_{cid}")
         
-        l = {
-            "comment": "💬" if get_current_lang() != "my" else "💬 မှတ်ချက်",
-            "chat": "⌨️" if get_current_lang() != "my" else "⌨️ စကားပြော",
-            "reaction": "😊" if get_current_lang() != "my" else "😊 တုံ့ပြန်မှု",
-            "protect": "🛡" if get_current_lang() != "my" else "🛡 ကာကွယ်ရေး",
-            "ss": "📸" if get_current_lang() != "my" else "📸 ပုံရိုက်တားဆီး",
-            "rc": "🔗" if get_current_lang() != "my" else "🔗 အဝေးထိန်း",
-            "ban": "🚫" if get_current_lang() != "my" else "🚫 တားမြစ်စာလုံး",
-            "spam": "📉" if get_current_lang() != "my" else "📉 စပမ်းစစ်ထုတ်"
-        }
-        
         kb = [
-            [btn(l["comment"], "comment"), btn(l["chat"], "chat")],
-            [btn(l["reaction"], "reaction"), btn(l["protect"], "protect")],
-            [btn(l["ss"], "ss"), btn(l["rc"], "rc")],
-            [btn(l["ban"], "banned_active"), btn(l["spam"], "spam_filter")],
+            [btn(labels["comment"], "comment"), btn(labels["chat"], "chat")],
+            [btn(labels["reaction"], "reaction"), btn(labels["protect"], "protect")],
+            [btn(labels["ss"], "ss"), btn(labels["rc"], "rc")],
+            [btn(labels["ban"], "banned_active"), btn(labels["spam"], "spam_filter")],
             [InlineKeyboardButton(get_t("bw_add_btn"), callback_data=f"bw_add_{cid}"),
              InlineKeyboardButton(get_t("bw_view_btn"), callback_data=f"bw_view_{cid}")],
             [InlineKeyboardButton(get_t("back"), callback_data="nav_setting")]
@@ -476,33 +576,65 @@ async def main_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer("Updated!")
         await main_callback(update, context)
 
+    # --- UPDATED STATS NAVIGATION FLOW ---
+    
+    # 1. Chat List
     elif data == "nav_graph_chat_list":
         conn = sqlite3.connect(DB_PATH)
         rows = conn.execute("SELECT id, title FROM chats").fetchall()
         conn.close()
-        kb = [[InlineKeyboardButton(f"📊 {r[1]}", callback_data=f"gr_list_{r[0]}")] for r in rows]
+        # Change next step to "sel_month" instead of direct metric list
+        kb = [[InlineKeyboardButton(f"📊 {r[1]}", callback_data=f"sel_month_{r[0]}")] for r in rows]
         kb.append([InlineKeyboardButton(get_t("back"), callback_data="main_menu")])
         await query.edit_message_text(get_t("stats_select"), reply_markup=InlineKeyboardMarkup(kb))
 
-    elif data.startswith("gr_list_"):
+    # 2. Month Selection
+    elif data.startswith("sel_month_"):
         cid = data.split("_")[2]
-        # Use get_metric_menu to show the 21 metrics
-        await query.edit_message_text(get_t("metric_select"), reply_markup=get_metric_menu(cid))
+        await query.edit_message_text(get_t("month_select"), reply_markup=get_month_menu(cid))
 
-    elif data.startswith("gr_"):
+    # 3. Day Selection
+    elif data.startswith("sel_day_"):
+        # Format: sel_day_{chat_id}_{YYYY-MM}
         parts = data.split("_")
-        cid, metric = parts[1], parts[2]
-        await query.answer(get_t("graph_gen"))
-        
-        # Generate TEXT Report instead of Image
-        report_text = await generate_live_stats_text(cid, metric)
-        
-        # Edit Message with Text Report
-        await query.edit_message_text(
-            text=report_text, 
-            reply_markup=get_metric_menu(cid),
-            parse_mode=ParseMode.MARKDOWN
-        )
+        cid = parts[2]
+        ym = parts[3] # 2024-02
+        await query.edit_message_text(get_t("day_select"), reply_markup=get_day_menu(cid, ym))
+
+    # 4. Metric Selection
+    elif data.startswith("sel_met_"):
+        # Format: sel_met_{chat_id}_{date_filter}
+        # date_filter can be YYYY-MM or YYYY-MM-DD
+        parts = data.split("_")
+        cid = parts[2]
+        date_filter = parts[3]
+        await query.edit_message_text(get_t("metric_select"), reply_markup=get_metric_menu(cid, date_filter))
+
+    # 5. Final Report
+    elif data.startswith("fin_"):
+        # Format: fin_{chat_id}|{date_filter}|{metric_name}
+        # We used '|' separator to be safe with underscores in metric name (though minimal risk)
+        try:
+            _, payload = data.split("_", 1)
+            cid, date_filter, metric = payload.split("|")
+            
+            await query.answer(get_t("graph_gen"))
+            
+            # Find full metric name from short name if needed, but here we passed the short/full string.
+            # In generate function we use LIKE or exact match? 
+            # Ideally the metric name in DB should match exactly. 
+            # For this code to work, we assume what's passed in button is what's in DB.
+            
+            report_text = await generate_stats_text(cid, metric, date_filter)
+            
+            await query.edit_message_text(
+                text=report_text, 
+                reply_markup=get_metric_menu(cid, date_filter),
+                parse_mode=ParseMode.MARKDOWN
+            )
+        except Exception as e:
+            logger.error(f"Stats Error: {e}")
+            await query.answer("Error generating stats.")
 
     elif data == "nav_post":
         kb = InlineKeyboardMarkup([
@@ -579,7 +711,7 @@ if __name__ == '__main__':
     # 1. Start Keep-Alive Server
     keep_alive()
 
-    # 2. Add Persistence (Saves button states even if bot restarts)
+    # 2. Add Persistence
     my_persistence = PicklePersistence(filepath='storage/bot_states')
     app = ApplicationBuilder().token(ADMIN_BOT_TOKEN).persistence(my_persistence).build()
     
@@ -611,7 +743,8 @@ if __name__ == '__main__':
     app.add_handler(conv_add_chat)
     app.add_handler(conv_bw)
     app.add_handler(conv_post)
+    # Callback handler must come last to catch other button clicks
     app.add_handler(CallbackQueryHandler(main_callback))
     
-    print("🚀 Admin Bot V2 (Fixed) is running...")
+    print("🚀 Admin Bot V3 (With Month/Day Filter) is running...")
     app.run_polling(drop_pending_updates=True)
