@@ -389,18 +389,7 @@ def get_metric_menu(chat_id, date_filter):
     keyboard = []
     row = []
     for m in metrics:
-        # Callback: show_stat_{chat_id}_{date_filter}_{metric_index_or_name}
-        # To save space in callback data, we use metric name directly but truncated if needed
-        # We need to ensure we don't exceed Telegram's 64 byte limit.
-        
-        # Use first English word or index? 
-        # For simplicity in this demo, we'll try to just use a short identifier.
-        # But wait, we need to map back to DB. 
-        # NOTE: In a real app, map these display strings to a constant key like "JOINED", "LEFT" etc.
-        # For this snippet, we assume the display string is the key or close enough.
-        
         short_metric = m[:15] # Truncate for safety
-        
         row.append(InlineKeyboardButton(m, callback_data=f"fin_{chat_id}|{date_filter}|{short_metric}"))
         if len(row) == 2:
             keyboard.append(row)
@@ -512,6 +501,38 @@ async def job_delete_post(context: ContextTypes.DEFAULT_TYPE):
         await context.bot.delete_message(chat_id=data['chat_id'], message_id=data['msg_id'])
     except Exception as e:
         logger.error(f"Delete Job Error: {e}")
+
+# --- COMMAND HANDLERS (NEW) ---
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id not in ALLOWED_ADMINS: return
+    await update.message.reply_text(get_t("welcome"), reply_markup=get_main_menu(), parse_mode=ParseMode.MARKDOWN)
+
+async def setting_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id not in ALLOWED_ADMINS: return
+    conn = sqlite3.connect(DB_PATH)
+    rows = conn.execute("SELECT id, title FROM chats").fetchall()
+    conn.close()
+    kb = [[InlineKeyboardButton(f"⚙️ {r[1]}", callback_data=f"manage_{r[0]}")] for r in rows]
+    kb.append([InlineKeyboardButton(get_t("add_chat"), callback_data="add_chat_start")])
+    kb.append([InlineKeyboardButton(get_t("back"), callback_data="main_menu")])
+    await update.message.reply_text("Select Chat to Manage:", reply_markup=InlineKeyboardMarkup(kb))
+
+async def graph_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id not in ALLOWED_ADMINS: return
+    conn = sqlite3.connect(DB_PATH)
+    rows = conn.execute("SELECT id, title FROM chats").fetchall()
+    conn.close()
+    kb = [[InlineKeyboardButton(f"📊 {r[1]}", callback_data=f"sel_month_{r[0]}")] for r in rows]
+    kb.append([InlineKeyboardButton(get_t("back"), callback_data="main_menu")])
+    await update.message.reply_text(get_t("stats_select"), reply_markup=InlineKeyboardMarkup(kb))
+
+async def post_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id not in ALLOWED_ADMINS: return
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("➕ Create Post", callback_data="post_create")],
+        [InlineKeyboardButton(get_t("back"), callback_data="main_menu")]
+    ])
+    await update.message.reply_text(get_t("menu_post"), reply_markup=kb)
 
 # --- CALLBACKS (Logic Updated for Month/Day) ---
 async def main_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -739,7 +760,13 @@ if __name__ == '__main__':
         allow_reentry=True 
     )
 
-    app.add_handler(CommandHandler('start', lambda u, c: u.message.reply_text(get_t("welcome"), reply_markup=get_main_menu(), parse_mode=ParseMode.MARKDOWN)))
+    # Added explicit CommandHandlers
+    app.add_handler(CommandHandler('start', start_command))
+    app.add_handler(CommandHandler('setting', setting_command))
+    app.add_handler(CommandHandler('graph', graph_command))
+    app.add_handler(CommandHandler('grap', graph_command)) # Alias for typo
+    app.add_handler(CommandHandler('post', post_command))
+
     app.add_handler(conv_add_chat)
     app.add_handler(conv_bw)
     app.add_handler(conv_post)
