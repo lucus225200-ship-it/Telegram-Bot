@@ -1,12 +1,13 @@
 # ==========================
-# ADMIN TELEGRAM BOT – FULL SYSTEM ACTIVE (SINGLE FILE)
+# ADMIN TELEGRAM BOT – FULL SYSTEM ACTIVE (COPY–PASTE READY)
 # ==========================
-# FIXED VERSION:
-# ✔ Buttons working correctly (no dead callbacks)
-# ✔ Channel / Group add
+# ✔ Channel / Group link add (SUCCESS / FAIL feedback)
+# ✔ /setting /graph /post commands ACTIVE
+# ✔ Buttons + callbacks ACTIVE
 # ✔ Language switch (MY / EN / ZH)
-# ✔ Auto Post (text)
-# ✔ Statistics (real events)
+# ✔ Auto Post (text) ACTIVE
+# ✔ Statistics ACTIVE (today)
+# ✔ Docker / VPS / Railway SAFE
 # ==========================
 
 import os
@@ -31,7 +32,7 @@ from telegram.constants import ParseMode, ChatMemberStatus
 # ==========================
 # CONFIG
 # ==========================
-ADMIN_BOT_TOKEN = "8324982217:AAEQ85YcMran1X0UEirIISV831FR1jrzXG4"
+ADMIN_BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"
 ALLOWED_ADMINS = [8346273059]
 DB_PATH = "storage/admin_bot.db"
 
@@ -42,7 +43,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # ==========================
-# KEEP ALIVE WEB SERVER
+# KEEP ALIVE
 # ==========================
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -72,7 +73,7 @@ def init_db():
     conn.commit(); conn.close()
 
 # ==========================
-# LANGUAGE – FULL VERSION
+# LANGUAGE (FULL)
 # ==========================
 LANG = {
     "my": {
@@ -85,6 +86,7 @@ LANG = {
         "back": "🔙 နောက်သို့",
         "send_link": "Channel / Group link (သို့) @username ပို့ပါ",
         "added": "✅ အောင်မြင်စွာ ထည့်ပြီးပါပြီ",
+        "add_fail": "❌ မအောင်မြင်ပါ။ Bot ကို Admin ခန့်ထားပါ။",
         "send_post": "ပို့စ် စာသား ပို့ပါ",
         "send_time": "ဘယ်နှစ်မိနစ်နောက် တင်မလဲ?",
         "scheduled": "✅ ပို့စ်ကို စီစဉ်ပြီးပါပြီ",
@@ -100,6 +102,7 @@ LANG = {
         "back": "🔙 Back",
         "send_link": "Send channel/group link or @username",
         "added": "✅ Successfully added",
+        "add_fail": "❌ Failed. Make bot admin first.",
         "send_post": "Send post text",
         "send_time": "Post after how many minutes?",
         "scheduled": "✅ Post scheduled",
@@ -115,6 +118,7 @@ LANG = {
         "back": "返回",
         "send_link": "发送频道/群组链接 或 @用户名",
         "added": "✅ 添加成功",
+        "add_fail": "❌ 添加失败，请先设为管理员",
         "send_post": "发送帖子内容",
         "send_time": "多少分钟后发布？",
         "scheduled": "✅ 已排期",
@@ -141,14 +145,24 @@ def main_menu():
     ])
 
 # ==========================
-# COMMAND
+# COMMANDS
 # ==========================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id in ALLOWED_ADMINS:
         await update.message.reply_text(t("welcome"), reply_markup=main_menu(), parse_mode=ParseMode.MARKDOWN)
 
+async def setting_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await start(update, context)
+
+async def graph_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await show_stats(update, context)
+
+async def post_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(t("send_post"))
+    context.user_data['mode'] = 'post'
+
 # ==========================
-# CALLBACK HANDLER
+# CALLBACKS
 # ==========================
 async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
@@ -158,21 +172,16 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         kb = [[InlineKeyboardButton(t("add_chat"), callback_data="add_chat")],[InlineKeyboardButton(t("back"), callback_data="main")]]
         await q.edit_message_text(t("settings"), reply_markup=InlineKeyboardMarkup(kb))
 
+    elif q.data == "add_chat":
+        await q.edit_message_text(t("send_link"))
+        context.user_data['mode'] = 'add'
+
     elif q.data == "stats":
-        today = datetime.date.today().isoformat()
-        conn = sqlite3.connect(DB_PATH)
-        r = conn.execute("SELECT SUM(joins),SUM(leaves),SUM(messages) FROM stats WHERE date=?",(today,)).fetchone()
-        conn.close()
-        j,l,m = r if r else (0,0,0)
-        await q.edit_message_text(f"{t('stats_today')}\n➕ {j}  ➖ {l}\n💬 {m}", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("back"), callback_data="main")]]))
+        await show_stats(q, context)
 
     elif q.data == "post":
         await q.edit_message_text(t("send_post"))
         context.user_data['mode'] = 'post'
-
-    elif q.data == "add_chat":
-        await q.edit_message_text(t("send_link"))
-        context.user_data['mode'] = 'add'
 
     elif q.data == "lang":
         kb=[[InlineKeyboardButton("🇲🇲 MY",callback_data="l_my"),InlineKeyboardButton("🇺🇸 EN",callback_data="l_en")],[InlineKeyboardButton("🇨🇳 ZH",callback_data="l_zh")],[InlineKeyboardButton(t("back"),callback_data="main")]]
@@ -189,17 +198,35 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.edit_message_text(t("welcome"), reply_markup=main_menu(), parse_mode=ParseMode.MARKDOWN)
 
 # ==========================
+# HELPERS
+# ==========================
+async def show_stats(target, context):
+    today = datetime.date.today().isoformat()
+    conn = sqlite3.connect(DB_PATH)
+    r = conn.execute("SELECT SUM(joins),SUM(leaves),SUM(messages) FROM stats WHERE date=?",(today,)).fetchone()
+    conn.close()
+    j,l,m = r if r else (0,0,0)
+    text = f"{t('stats_today')}\n➕ {j}  ➖ {l}\n💬 {m}"
+    if isinstance(target, Update):
+        await target.message.reply_text(text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("back"), callback_data="main")]]))
+    else:
+        await target.edit_message_text(text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t("back"), callback_data="main")]]))
+
+# ==========================
 # TEXT HANDLER
 # ==========================
 async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     mode = context.user_data.get('mode')
 
     if mode == 'add':
-        chat = await context.bot.get_chat(update.message.text)
-        conn=sqlite3.connect(DB_PATH)
-        conn.execute("INSERT OR REPLACE INTO chats VALUES (?,?)",(str(chat.id),chat.title))
-        conn.commit(); conn.close()
-        await update.message.reply_text(t("added"), reply_markup=main_menu())
+        try:
+            chat = await context.bot.get_chat(update.message.text)
+            conn=sqlite3.connect(DB_PATH)
+            conn.execute("INSERT OR REPLACE INTO chats VALUES (?,?)",(str(chat.id),chat.title))
+            conn.commit(); conn.close()
+            await update.message.reply_text(t("added"), reply_markup=main_menu())
+        except:
+            await update.message.reply_text(t("add_fail"))
         context.user_data.clear()
 
     elif mode == 'post':
@@ -208,17 +235,20 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['mode']='time'
 
     elif mode == 'time':
-        minutes=int(update.message.text)
-        text=context.user_data['text']
-        conn=sqlite3.connect(DB_PATH)
-        chats=conn.execute("SELECT id FROM chats").fetchall()
-        conn.close()
-        async def job():
-            for (cid,) in chats:
-                try: await context.bot.send_message(cid,text)
-                except: pass
-        context.application.job_queue.run_once(lambda *_: asyncio.create_task(job()), minutes*60)
-        await update.message.reply_text(t("scheduled"), reply_markup=main_menu())
+        try:
+            minutes=int(update.message.text)
+            text=context.user_data['text']
+            conn=sqlite3.connect(DB_PATH)
+            chats=conn.execute("SELECT id FROM chats").fetchall()
+            conn.close()
+            async def job():
+                for (cid,) in chats:
+                    try: await context.bot.send_message(cid,text)
+                    except: pass
+            context.application.job_queue.run_once(lambda *_: asyncio.create_task(job()), minutes*60)
+            await update.message.reply_text(t("scheduled"), reply_markup=main_menu())
+        except:
+            await update.message.reply_text("❌ Invalid number")
         context.user_data.clear()
 
 # ==========================
@@ -254,9 +284,12 @@ if __name__ == '__main__':
     threading.Thread(target=start_web_server, daemon=True).start()
     app=ApplicationBuilder().token(ADMIN_BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("setting", setting_cmd))
+    app.add_handler(CommandHandler("graph", graph_cmd))
+    app.add_handler(CommandHandler("post", post_cmd))
     app.add_handler(CallbackQueryHandler(on_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     app.add_handler(ChatMemberHandler(on_member, ChatMemberHandler.CHAT_MEMBER))
     app.add_handler(MessageHandler(filters.ALL, on_message))
-    logger.info("ADMIN BOT – FULL LANGUAGE FIXED")
+    logger.info("ADMIN BOT – ALL SYSTEM ACTIVE")
     app.run_polling()
