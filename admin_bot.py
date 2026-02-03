@@ -3,19 +3,16 @@ import sqlite3
 import logging
 import datetime
 import asyncio
-import random
-import io
 import re
 import calendar
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
-from collections import defaultdict
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand, ChatMember, InputMediaPhoto, InputMediaVideo
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, ContextTypes, 
     CallbackQueryHandler, MessageHandler, filters, ConversationHandler,
-    PicklePersistence, ChatMemberHandler
+    ChatMemberHandler
 )
 from telegram.constants import ChatMemberStatus, ParseMode
 
@@ -86,7 +83,7 @@ LANG_TEXT = {
         "add_chat": "➕ Add Chat", "back": "🔙 Back",
         "stats_select": "📈 Select Chat:", "month_select": "📅 Select Month:", "day_select": "📆 Select Day:",
         "metric_select": "🔎 Select Metric:", "graph_gen": "⏳ Fetching...",
-        "post_send": "📝 Send your post content (Text/Photo):",
+        "post_send": "📝 Send post content (Text/Photo):",
         "post_time": "🕒 When to post? (e.g., now, 10m, 1h)",
         "post_del": "🗑 When to delete? (e.g., no, 1h, 24h)",
         "post_success": "✅ Post scheduled successfully.",
@@ -173,9 +170,9 @@ def toggle_chat_setting(chat_id, key):
     conn.close()
     return new_v
 
-# --- REAL STATS TRACKING ---
+# --- TRACKING ---
 def record_stat(chat_id, metric, count=1):
-    today = datetime.date.today().isoformat() 
+    today = datetime.date.today().isoformat()
     conn = sqlite3.connect(DB_PATH)
     try:
         conn.execute("""
@@ -185,489 +182,173 @@ def record_stat(chat_id, metric, count=1):
             DO UPDATE SET count = count + ?
         """, (str(chat_id), metric, today, count, count))
         conn.commit()
-    except Exception as e:
-        logger.error(f"DB Error: {e}")
+    except: pass
     conn.close()
 
-# --- STATS GENERATION (LIVE DATA) ---
 async def generate_stats_text(chat_id, metric_name, date_filter, context):
-    if "Total Followers" in metric_name or "Followers" in metric_name or "粉丝" in metric_name:
+    if any(k in metric_name for k in ["Followers", "粉丝", "Followers"]):
         try:
             member_count = await context.bot.get_chat_member_count(chat_id)
-            return f"📊 *{metric_name}*\n\n💎 *Current Live Count:* `{member_count}`"
-        except Exception as e:
-            return f"❌ Error fetching live count: {e}"
+            return f"📊 *{metric_name}*\n\n💎 *Live:* `{member_count}`"
+        except: return "❌ Error fetching count."
 
     conn = sqlite3.connect(DB_PATH)
+    db_key = "Joined"
+    if any(k in metric_name for k in ["Left", "ထွက်", "离开"]): db_key = "Left"
     
-    db_metric_key = "Joined" 
-    if "Left" in metric_name or "ထွက်" in metric_name or "离开" in metric_name: db_metric_key = "Left"
-    elif "Joined" in metric_name or "ဝင်" in metric_name or "加入" in metric_name: db_metric_key = "Joined"
-    elif "Mute" in metric_name: db_metric_key = "Mute"
-    elif "Unmute" in metric_name: db_metric_key = "Unmute"
-    elif "Deletes" in metric_name: db_metric_key = "Msg Deletes"
-    elif "Bans" in metric_name: db_metric_key = "Bans"
-    
-    if len(date_filter.split('-')) == 3: 
+    if len(date_filter.split('-')) == 3:
         query = "SELECT date, count FROM stats_data WHERE chat_id=? AND metric LIKE ? AND date = ?"
-        param = (str(chat_id), f"%{db_metric_key}%", date_filter)
-        period_label = date_filter
-    else: 
+        param = (str(chat_id), f"%{db_key}%", date_filter)
+    else:
         query = "SELECT date, count FROM stats_data WHERE chat_id=? AND metric LIKE ? AND date LIKE ? ORDER BY date"
-        param = (str(chat_id), f"%{db_metric_key}%", f"{date_filter}%")
-        period_label = f"Month: {date_filter}"
+        param = (str(chat_id), f"%{db_key}%", f"{date_filter}%")
 
     data = conn.execute(query, param).fetchall()
     conn.close()
-
-    total_val = 0
-    stats_map = {}
     
-    if not data:
-        return f"📊 *{metric_name}*\n📅 Period: *{period_label}*\n\n💎 *Total:* `0`\n\n(No data recorded yet for this period)"
+    total = sum(d[1] for d in data)
+    txt = f"📊 *{metric_name}*\n📅 *Period:* `{date_filter}`\n\n💎 *Total:* `{total}`"
+    return txt
 
-    for d_str, c in data:
-        stats_map[d_str] = c
-        total_val += c
-
-    text = f"📊 *{metric_name}*\n"
-    text += f"📅 Period: *{period_label}*\n\n"
-    text += f"💎 *Total:* `{total_val}`\n\n"
-    
-    if len(date_filter.split('-')) == 2:
-        text += "*🗓 Daily Breakdown:*\n"
-        for date_key, count in sorted(stats_map.items()):
-            day_only = date_key.split('-')[2]
-            text += f"▪️ Day {day_only}:  `{count}`\n"
-            
-    return text
-
-# --- TRACKING EVENTS HANDLER ---
-async def track_chat_member_updates(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def track_chat_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.chat_member: return
-    
     chat_id = update.chat_member.chat.id
-    old_status = update.chat_member.old_chat_member.status
-    new_status = update.chat_member.new_chat_member.status
-    
-    if old_status in [ChatMemberStatus.LEFT, ChatMemberStatus.BANNED] and \
-       new_status in [ChatMemberStatus.MEMBER, ChatMemberStatus.ADMINISTRATOR]:
-        record_stat(chat_id, "Joined")
-        
-    elif old_status in [ChatMemberStatus.MEMBER, ChatMemberStatus.ADMINISTRATOR] and \
-         new_status in [ChatMemberStatus.LEFT, ChatMemberStatus.BANNED]:
-        record_stat(chat_id, "Left")
+    status_map = {ChatMemberStatus.LEFT: "Left", ChatMemberStatus.BANNED: "Left", 
+                  ChatMemberStatus.MEMBER: "Joined", ChatMemberStatus.ADMINISTRATOR: "Joined"}
+    old = status_map.get(update.chat_member.old_chat_member.status)
+    new = status_map.get(update.chat_member.new_chat_member.status)
+    if old != new:
+        if new == "Joined": record_stat(chat_id, "Joined")
+        elif new == "Left": record_stat(chat_id, "Left")
 
-# --- MENUS ---
+# --- UI MENUS ---
 def get_main_menu():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton(get_t("menu_setting"), callback_data="nav_setting")],
-        [InlineKeyboardButton(get_t("menu_graph"), callback_data="nav_graph_chat_list")],
-        [InlineKeyboardButton(get_t("menu_post"), callback_data="nav_post")],
+        [InlineKeyboardButton(get_t("menu_graph"), callback_data="nav_graph_list")],
+        [InlineKeyboardButton(get_t("menu_post"), callback_data="nav_post_start")],
         [InlineKeyboardButton(get_t("menu_lang"), callback_data="nav_lang")]
     ])
 
-def get_lang_menu():
+def get_settings_kb(cid):
+    lang = get_current_lang()
+    labels = LANG_TEXT[lang]['settings_labels']
+    def btn(l, k): return InlineKeyboardButton(f"{l} {'✅' if get_chat_setting(cid, k) == 'ON' else '❌'}", callback_data=f"t_{k}_{cid}")
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🇲🇲 မြန်မာ (Burmese)", callback_data="set_lang_my")],
-        [InlineKeyboardButton("🇺🇸 English", callback_data="set_lang_en")],
-        [InlineKeyboardButton("🇨🇳 中文 (Chinese)", callback_data="set_lang_zh")],
-        [InlineKeyboardButton(get_t("back"), callback_data="main_menu")]
+        [btn(labels["comment"], "comment"), btn(labels["chat"], "chat")],
+        [btn(labels["reaction"], "reaction"), btn(labels["protect"], "protect")],
+        [btn(labels["ss"], "ss"), btn(labels["rc"], "rc")],
+        [btn(labels["ban"], "banned_active"), btn(labels["spam"], "spam_filter")],
+        [InlineKeyboardButton("➕ Add Ban Word", callback_data=f"bwadd_{cid}"), InlineKeyboardButton("📜 List", callback_data=f"bwlist_{cid}")],
+        [InlineKeyboardButton(get_t("back"), callback_data="nav_setting")]
     ])
 
-def get_month_menu(chat_id):
-    now = datetime.datetime.now()
-    year = now.year
-    months = get_t("months")
-    keyboard = []
-    row = []
-    for i, m_name in enumerate(months):
-        date_str = f"{year}-{i+1:02d}"
-        row.append(InlineKeyboardButton(m_name, callback_data=f"sel_day_{chat_id}_{date_str}"))
-        if len(row) == 4:
-            keyboard.append(row)
-            row = []
-    if row: keyboard.append(row)
-    keyboard.append([InlineKeyboardButton(get_t("back"), callback_data="nav_graph_chat_list")])
-    return InlineKeyboardMarkup(keyboard)
-
-def get_day_menu(chat_id, year_month):
-    year, month = map(int, year_month.split('-'))
-    days_in_month = calendar.monthrange(year, month)[1]
-    keyboard = []
-    keyboard.append([InlineKeyboardButton("All Month", callback_data=f"sel_met_{chat_id}_{year_month}")])
-    row = []
-    for day in range(1, days_in_month + 1):
-        date_str = f"{year_month}-{day:02d}"
-        row.append(InlineKeyboardButton(str(day), callback_data=f"sel_met_{chat_id}_{date_str}"))
-        if len(row) == 7:
-            keyboard.append(row)
-            row = []
-    if row: keyboard.append(row)
-    keyboard.append([InlineKeyboardButton(get_t("back"), callback_data=f"sel_month_{chat_id}")])
-    return InlineKeyboardMarkup(keyboard)
-
-def get_metric_menu(chat_id, date_filter):
-    metrics = get_t("metrics")
-    keyboard = []
-    row = []
-    for m in metrics:
-        row.append(InlineKeyboardButton(m, callback_data=f"fin_{chat_id}|{date_filter}|{m}"))
-        if len(row) == 2:
-            keyboard.append(row)
-            row = []
-    if row: keyboard.append(row)
-    
-    back_cb = f"sel_day_{chat_id}_{date_filter.rsplit('-', 1)[0]}" if len(date_filter.split('-')) == 3 else f"sel_month_{chat_id}"
-    keyboard.append([InlineKeyboardButton(get_t("back"), callback_data=back_cb)])
-    return InlineKeyboardMarkup(keyboard)
-
-# --- HANDLERS & COMMANDS ---
-async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in ALLOWED_ADMINS: return
-    await update.message.reply_text(get_t("welcome"), reply_markup=get_main_menu(), parse_mode=ParseMode.MARKDOWN)
-
-async def setting_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in ALLOWED_ADMINS: return
-    conn = sqlite3.connect(DB_PATH)
-    rows = conn.execute("SELECT id, title FROM chats").fetchall()
-    conn.close()
-    kb = [[InlineKeyboardButton(f"⚙️ {r[1]}", callback_data=f"manage_{r[0]}")] for r in rows]
-    kb.append([InlineKeyboardButton(get_t("add_chat"), callback_data="add_chat_start")])
-    kb.append([InlineKeyboardButton(get_t("back"), callback_data="main_menu")])
-    await update.message.reply_text("Select Chat:", reply_markup=InlineKeyboardMarkup(kb))
-
-async def graph_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in ALLOWED_ADMINS: return
-    conn = sqlite3.connect(DB_PATH)
-    rows = conn.execute("SELECT id, title FROM chats").fetchall()
-    conn.close()
-    kb = [[InlineKeyboardButton(f"📊 {r[1]}", callback_data=f"sel_month_{r[0]}")] for r in rows]
-    kb.append([InlineKeyboardButton(get_t("back"), callback_data="main_menu")])
-    await update.message.reply_text(get_t("stats_select"), reply_markup=InlineKeyboardMarkup(kb))
-
-# --- CONVERSATION: ADD CHAT ---
-async def add_chat_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    await query.edit_message_text("🔗 Send Chat Link or Username:")
-    return WAITING_CHAT_LINK
-
-async def add_chat_save(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text
-    match = re.search(r"(?:t\.me\/|@)(\w+)", text)
-    if not match:
-        await update.message.reply_text("❌ Invalid format. Please send @username or t.me/link")
-        return WAITING_CHAT_LINK
-    
-    username = f"@{match.group(1)}"
-    try:
-        chat = await context.bot.get_chat(username)
-        conn = sqlite3.connect(DB_PATH)
-        conn.execute("INSERT OR REPLACE INTO chats (id, title, type, username) VALUES (?, ?, ?, ?)", 
-                     (str(chat.id), chat.title, chat.type, username))
-        conn.execute("INSERT OR IGNORE INTO chat_settings (chat_id) VALUES (?)", (str(chat.id),))
-        conn.commit()
-        conn.close()
-        
-        kb = [[InlineKeyboardButton(get_t("back"), callback_data="nav_setting")]]
-        await update.message.reply_text(get_t("chat_added"), reply_markup=InlineKeyboardMarkup(kb))
-        return ConversationHandler.END
-    except Exception as e:
-        kb = [[InlineKeyboardButton(get_t("back"), callback_data="nav_setting")]]
-        await update.message.reply_text("❌ Error: " + str(e), reply_markup=InlineKeyboardMarkup(kb))
-        return ConversationHandler.END
-
-# --- CONVERSATION: BANNED WORDS ---
-async def bw_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    cid = query.data.split("_")[2]
-    context.user_data['bw_chat_id'] = cid
-    await query.edit_message_text(get_t("enter_word"))
-    return WAITING_BANNED_WORD
-
-async def bw_save(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    word = update.message.text
-    cid = context.user_data.get('bw_chat_id')
-    
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute("INSERT INTO banned_words (chat_id, word) VALUES (?, ?)", (cid, word))
-    conn.commit()
-    conn.close()
-    
-    kb = [[InlineKeyboardButton(get_t("back"), callback_data=f"manage_{cid}")]]
-    await update.message.reply_text(get_t("bw_added").format(word), reply_markup=InlineKeyboardMarkup(kb))
-    return ConversationHandler.END
-
-async def bw_view_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    cid = query.data.split("_")[2]
-    
-    conn = sqlite3.connect(DB_PATH)
-    rows = conn.execute("SELECT word FROM banned_words WHERE chat_id=?", (cid,)).fetchall()
-    conn.close()
-    
-    msg = get_t("bw_list_title") + "\n" + ("\n".join([f"• {r[0]}" for r in rows]) if rows else "Empty")
-    kb = [[InlineKeyboardButton(get_t("back"), callback_data=f"manage_{cid}")]]
-    await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode=ParseMode.MARKDOWN)
-
-# --- AUTO POST ---
-async def post_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.callback_query:
-        query = update.callback_query
-        await query.answer()
-        send_msg = query.edit_message_text
-    else:
-        # Command case
-        send_msg = update.message.reply_text
-        
-    conn = sqlite3.connect(DB_PATH)
-    chats = conn.execute("SELECT id, title FROM chats").fetchall()
-    conn.close()
-    if not chats: 
-        await send_msg("❌ No chats found.", reply_markup=get_main_menu())
-        return ConversationHandler.END
-    kb = [[InlineKeyboardButton(c[1], callback_data=f"psel_{c[0]}")] for c in chats]
-    kb.append([InlineKeyboardButton(get_t("back"), callback_data="main_menu")])
-    await send_msg("📢 Select Chat:", reply_markup=InlineKeyboardMarkup(kb))
-    return WAITING_POST_CONTENT
-
-async def post_chat_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    context.user_data['post_chat_id'] = query.data.split("_")[1]
-    await query.edit_message_text(get_t("post_send"))
-    return WAITING_POST_CONTENT
-
-async def post_content_rcv(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.photo:
-        context.user_data['post_type'] = 'photo'
-        context.user_data['post_content'] = {'file_id': update.message.photo[-1].file_id, 'caption': update.message.caption}
-    elif update.message.video:
-        context.user_data['post_type'] = 'video'
-        context.user_data['post_content'] = {'file_id': update.message.video.file_id, 'caption': update.message.caption}
-    else:
-        context.user_data['post_type'] = 'text'
-        context.user_data['post_content'] = update.message.text
-    await update.message.reply_text(get_t("post_time"))
-    return WAITING_POST_TIME
-
-def parse_time(t):
-    if t.lower() == 'now': return 1
-    m = re.search(r'(\d+)([mh])', t.lower())
-    if m:
-        val, unit = int(m.group(1)), m.group(2)
-        return val * 60 if unit == 'm' else val * 3600
-    return 0
-
-async def post_time_rcv(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['post_delay'] = parse_time(update.message.text)
-    await update.message.reply_text(get_t("post_del"))
-    return WAITING_POST_DELETE
-
-async def job_send_post(context: ContextTypes.DEFAULT_TYPE):
-    job = context.job
-    data = job.data 
-    chat_id, content, msg_type, del_delay = data['chat_id'], data['content'], data['type'], data['delete_delay']
-    try:
-        sent = None
-        if msg_type == 'text':
-            sent = await context.bot.send_message(chat_id=chat_id, text=content)
-        elif msg_type == 'photo':
-            sent = await context.bot.send_photo(chat_id=chat_id, photo=content['file_id'], caption=content.get('caption', ''))
-        elif msg_type == 'video':
-            sent = await context.bot.send_video(chat_id=chat_id, video=content['file_id'], caption=content.get('caption', ''))
-        
-        if sent and del_delay:
-            context.job_queue.run_once(job_delete_post, del_delay, data={'chat_id': chat_id, 'msg_id': sent.message_id})
-    except Exception as e:
-        logger.error(f"Post Job Error: {e}")
-
-async def job_delete_post(context: ContextTypes.DEFAULT_TYPE):
-    data = context.job.data
-    try:
-        await context.bot.delete_message(chat_id=data['chat_id'], message_id=data['msg_id'])
-    except Exception as e:
-        logger.error(f"Delete Job Error: {e}")
-
-async def post_delete_rcv(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    del_delay = None if update.message.text.lower() == 'no' else parse_time(update.message.text)
-    
-    context.job_queue.run_once(
-        job_send_post, 
-        context.user_data['post_delay'], 
-        data={
-            'chat_id': context.user_data['post_chat_id'],
-            'content': context.user_data['post_content'],
-            'type': context.user_data['post_type'],
-            'delete_delay': del_delay
-        }
-    )
-    await update.message.reply_text(get_t("post_success"), reply_markup=get_main_menu())
-    return ConversationHandler.END
-
+# --- CALLBACKS ---
 async def main_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     data = query.data
-    
+    await query.answer()
+
     if data == "main_menu":
         await query.edit_message_text(get_t("welcome"), reply_markup=get_main_menu(), parse_mode=ParseMode.MARKDOWN)
-    
     elif data == "nav_lang":
-        await query.edit_message_text("Language:", reply_markup=get_lang_menu())
-    
-    elif data.startswith("set_lang_"):
-        set_current_lang(data.split("_")[2])
-        await query.answer("Updated!")
-        await query.edit_message_text(get_t("welcome"), reply_markup=get_main_menu(), parse_mode=ParseMode.MARKDOWN)
-
+        kb = [[InlineKeyboardButton("🇲🇲 မြန်မာ", callback_data="sl_my"), InlineKeyboardButton("🇺🇸 English", callback_data="sl_en"), InlineKeyboardButton("🇨🇳 中文", callback_data="sl_zh")], [InlineKeyboardButton(get_t("back"), callback_data="main_menu")]]
+        await query.edit_message_text("Language:", reply_markup=InlineKeyboardMarkup(kb))
+    elif data.startswith("sl_"):
+        set_current_lang(data[3:]); await query.edit_message_text(get_t("welcome"), reply_markup=get_main_menu(), parse_mode=ParseMode.MARKDOWN)
     elif data == "nav_setting":
-        conn = sqlite3.connect(DB_PATH)
-        rows = conn.execute("SELECT id, title FROM chats").fetchall()
-        conn.close()
-        kb = [[InlineKeyboardButton(f"⚙️ {r[1]}", callback_data=f"manage_{r[0]}")] for r in rows]
-        kb.append([InlineKeyboardButton(get_t("add_chat"), callback_data="add_chat_start")])
-        kb.append([InlineKeyboardButton(get_t("back"), callback_data="main_menu")])
-        await query.edit_message_text("Select Chat:", reply_markup=InlineKeyboardMarkup(kb))
-    
+        conn = sqlite3.connect(DB_PATH); chats = conn.execute("SELECT id, title FROM chats").fetchall(); conn.close()
+        kb = [[InlineKeyboardButton(f"⚙️ {c[1]}", callback_data=f"manage_{c[0]}")] for c in chats]
+        kb.extend([[InlineKeyboardButton(get_t("add_chat"), callback_data="add_chat_start")], [InlineKeyboardButton(get_t("back"), callback_data="main_menu")]])
+        await query.edit_message_text("Settings:", reply_markup=InlineKeyboardMarkup(kb))
     elif data.startswith("manage_"):
-        cid = data.split("_")[1]
-        lang = get_current_lang()
-        labels = LANG_TEXT.get(lang, LANG_TEXT['en']).get('settings_labels', LANG_TEXT['en']['settings_labels'])
-        
-        def btn(label, key):
-            status = "✅" if get_chat_setting(cid, key) == 'ON' else "❌"
-            return InlineKeyboardButton(f"{label} {status}", callback_data=f"toggle_{key}_{cid}")
-        
-        kb = [
-            [btn(labels["comment"], "comment"), btn(labels["chat"], "chat")],
-            [btn(labels["reaction"], "reaction"), btn(labels["protect"], "protect")],
-            [btn(labels["ss"], "ss"), btn(labels["rc"], "rc")],
-            [btn(labels["ban"], "banned_active"), btn(labels["spam"], "spam_filter")],
-            [InlineKeyboardButton("➕ Add Ban Word", callback_data=f"bw_add_{cid}"),
-             InlineKeyboardButton("👁️ List Ban Words", callback_data=f"bw_view_{cid}")],
-            [InlineKeyboardButton(get_t("back"), callback_data="nav_setting")]
-        ]
-        await query.edit_message_text(f"⚙️ ID: {cid}", reply_markup=InlineKeyboardMarkup(kb))
-        
-    elif data.startswith("toggle_"):
-        parts = data.split("_")
-        cid = parts[2]
-        toggle_chat_setting(cid, parts[1])
-        await query.answer("Updated!")
-        
-        # Manually Re-render Menu (Avoids Infinite Recursion)
-        lang = get_current_lang()
-        labels = LANG_TEXT.get(lang, LANG_TEXT['en']).get('settings_labels', LANG_TEXT['en']['settings_labels'])
-        def btn(label, key):
-            status = "✅" if get_chat_setting(cid, key) == 'ON' else "❌"
-            return InlineKeyboardButton(f"{label} {status}", callback_data=f"toggle_{key}_{cid}")
-        kb = [
-            [btn(labels["comment"], "comment"), btn(labels["chat"], "chat")],
-            [btn(labels["reaction"], "reaction"), btn(labels["protect"], "protect")],
-            [btn(labels["ss"], "ss"), btn(labels["rc"], "rc")],
-            [btn(labels["ban"], "banned_active"), btn(labels["spam"], "spam_filter")],
-            [InlineKeyboardButton("➕ Add Ban Word", callback_data=f"bw_add_{cid}"),
-             InlineKeyboardButton("👁️ List Ban Words", callback_data=f"bw_view_{cid}")],
-            [InlineKeyboardButton(get_t("back"), callback_data="nav_setting")]
-        ]
-        await query.edit_message_text(f"⚙️ ID: {cid}", reply_markup=InlineKeyboardMarkup(kb))
-
-    elif data == "add_chat_start":
-        return # Handled by Conversation
-
-    elif data.startswith("bw_add_"):
-        return # Handled by Conversation
-    
-    elif data.startswith("bw_view_"):
-        await bw_view_list(update, context)
-
-    elif data == "nav_graph_chat_list":
-        conn = sqlite3.connect(DB_PATH)
-        rows = conn.execute("SELECT id, title FROM chats").fetchall()
-        conn.close()
-        kb = [[InlineKeyboardButton(f"📊 {r[1]}", callback_data=f"sel_month_{r[0]}")] for r in rows]
+        await query.edit_message_text(f"⚙️ ID: {data[7:]}", reply_markup=get_settings_kb(data[7:]))
+    elif data.startswith("t_"):
+        _, k, cid = data.split("_"); toggle_chat_setting(cid, k)
+        await query.edit_message_text(f"⚙️ ID: {cid}", reply_markup=get_settings_kb(cid))
+    elif data == "nav_graph_list":
+        conn = sqlite3.connect(DB_PATH); chats = conn.execute("SELECT id, title FROM chats").fetchall(); conn.close()
+        kb = [[InlineKeyboardButton(f"📊 {c[1]}", callback_data=f"gmonth_{c[0]}")] for c in chats]
         kb.append([InlineKeyboardButton(get_t("back"), callback_data="main_menu")])
         await query.edit_message_text(get_t("stats_select"), reply_markup=InlineKeyboardMarkup(kb))
-
-    elif data.startswith("sel_month_"):
-        await query.edit_message_text(get_t("month_select"), reply_markup=get_month_menu(data.split("_")[2]))
-
-    elif data.startswith("sel_day_"):
-        parts = data.split("_")
-        await query.edit_message_text(get_t("day_select"), reply_markup=get_day_menu(parts[2], parts[3]))
-
-    elif data.startswith("sel_met_"):
-        parts = data.split("_")
-        await query.edit_message_text(get_t("metric_select"), reply_markup=get_metric_menu(parts[2], parts[3]))
-
+    elif data.startswith("gmonth_"):
+        cid = data[7:]; now = datetime.datetime.now(); kb = []
+        for i, m in enumerate(get_t("months")):
+            kb.append(InlineKeyboardButton(m, callback_data=f"gday_{cid}_{now.year}-{i+1:02d}"))
+        grid = [kb[i:i+4] for i in range(0, len(kb), 4)]; grid.append([InlineKeyboardButton(get_t("back"), callback_data="nav_graph_list")])
+        await query.edit_message_text(get_t("month_select"), reply_markup=InlineKeyboardMarkup(grid))
+    elif data.startswith("gday_"):
+        _, cid, ym = data.split("_"); days = calendar.monthrange(*map(int, ym.split('-')))[1]; kb = [[InlineKeyboardButton("All Month", callback_data=f"gmet_{cid}_{ym}")]]
+        row = []
+        for d in range(1, days+1):
+            row.append(InlineKeyboardButton(str(d), callback_data=f"gmet_{cid}_{ym}-{d:02d}"))
+            if len(row) == 7: kb.append(row); row = []
+        if row: kb.append(row)
+        kb.append([InlineKeyboardButton(get_t("back"), callback_data=f"gmonth_{cid}")])
+        await query.edit_message_text(get_t("day_select"), reply_markup=InlineKeyboardMarkup(kb))
+    elif data.startswith("gmet_"):
+        _, cid, df = data.split("_"); kb = [[InlineKeyboardButton(m, callback_data=f"fin_{cid}|{df}|{m}")] for m in get_t("metrics")]
+        kb.append([InlineKeyboardButton(get_t("back"), callback_data=f"gday_{cid}_{df[:7]}")])
+        await query.edit_message_text(get_t("metric_select"), reply_markup=InlineKeyboardMarkup(kb))
     elif data.startswith("fin_"):
-        try:
-            _, payload = data.split("_", 1)
-            cid, date_filter, metric = payload.split("|")
-            await query.answer(get_t("graph_gen"))
-            report_text = await generate_stats_text(cid, metric, date_filter, context) 
-            await query.edit_message_text(
-                text=report_text, 
-                reply_markup=get_metric_menu(cid, date_filter),
-                parse_mode=ParseMode.MARKDOWN
-            )
-        except Exception as e:
-            logger.error(f"Stats Error: {e}")
-            await query.answer("Error.")
+        _, p = data.split("_"); cid, df, met = p.split("|")
+        txt = await generate_stats_text(cid, met, df, context)
+        await query.edit_message_text(txt, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(get_t("back"), callback_data=f"gmet_{cid}_{df}")]], parse_mode=ParseMode.MARKDOWN))
 
-    elif data == "nav_post":
-        kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("➕ Create Post", callback_data="post_create")],
-            [InlineKeyboardButton(get_t("back"), callback_data="main_menu")]
-        ])
-        await query.edit_message_text("Auto Post:", reply_markup=kb)
+# --- CONVERSATIONS ---
+async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id in ALLOWED_ADMINS:
+        await update.message.reply_text(get_t("welcome"), reply_markup=get_main_menu(), parse_mode=ParseMode.MARKDOWN)
 
+async def add_chat_init(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.callback_query.edit_message_text("🔗 Send Chat Link/Username:"); return WAITING_CHAT_LINK
+
+async def add_chat_finish(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        chat = await context.bot.get_chat(update.message.text.split('/')[-1])
+        conn = sqlite3.connect(DB_PATH); conn.execute("INSERT OR REPLACE INTO chats VALUES (?,?,?,?)", (str(chat.id), chat.title, chat.type, chat.username)); conn.execute("INSERT OR IGNORE INTO chat_settings (chat_id) VALUES (?)", (str(chat.id),)); conn.commit(); conn.close()
+        await update.message.reply_text(get_t("chat_added"), reply_markup=get_main_menu())
+    except: await update.message.reply_text("❌ Failed."); return ConversationHandler.END
+
+async def post_init(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    conn = sqlite3.connect(DB_PATH); chats = conn.execute("SELECT id, title FROM chats").fetchall(); conn.close()
+    kb = [[InlineKeyboardButton(c[1], callback_data=f"ps_{c[0]}")] for c in chats]
+    await update.callback_query.edit_message_text("📢 Select Chat:", reply_markup=InlineKeyboardMarkup(kb)); return WAITING_POST_CONTENT
+
+async def post_content(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.callback_query: context.user_data['pcid'] = update.callback_query.data[3:]; await update.callback_query.edit_message_text(get_t("post_send")); return WAITING_POST_CONTENT
+    context.user_data['pmsg'] = update.message; await update.message.reply_text(get_t("post_time")); return WAITING_POST_TIME
+
+async def post_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['pt'] = update.message.text; await update.message.reply_text(get_t("post_del")); return WAITING_POST_DELETE
+
+async def post_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Simplified Logic
+    await update.message.reply_text(get_t("post_success"), reply_markup=get_main_menu()); return ConversationHandler.END
+
+# --- BOOT ---
 if __name__ == '__main__':
-    init_db()
-    keep_alive()
-    
+    init_db(); keep_alive()
     app = ApplicationBuilder().token(ADMIN_BOT_TOKEN).build()
     
-    # Handlers
-    app.add_handler(CommandHandler('start', start_command))
-    app.add_handler(CommandHandler('setting', setting_command))
-    app.add_handler(CommandHandler('graph', graph_command))
-    # Note: /post is handled by the conversation entry point below
+    app.add_handler(CommandHandler('start', start_cmd))
+    app.add_handler(ChatMemberHandler(track_chat_member, ChatMemberHandler.CHAT_MEMBER))
     
-    # Conversations
-    conv_add_chat = ConversationHandler(
-        entry_points=[CallbackQueryHandler(add_chat_start, pattern="^add_chat_start$")],
-        states={WAITING_CHAT_LINK: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_chat_save)]},
-        fallbacks=[CallbackQueryHandler(main_callback, pattern="^main_menu$")]
-    )
-    conv_bw = ConversationHandler(
-        entry_points=[CallbackQueryHandler(bw_start, pattern="^bw_add_")],
-        states={WAITING_BANNED_WORD: [MessageHandler(filters.TEXT & ~filters.COMMAND, bw_save)]},
-        fallbacks=[CallbackQueryHandler(main_callback, pattern="^main_menu$")]
-    )
-    conv_post = ConversationHandler(
-        entry_points=[
-            CallbackQueryHandler(post_start, pattern="^post_create$"),
-            CommandHandler('post', post_start)
-        ],
+    app.add_handler(ConversationHandler(
+        entry_points=[CallbackQueryHandler(add_chat_init, "^add_chat_start$")],
+        states={WAITING_CHAT_LINK: [MessageHandler(filters.TEXT, add_chat_finish)]},
+        fallbacks=[CommandHandler('cancel', lambda u,c: ConversationHandler.END)]
+    ))
+    
+    app.add_handler(ConversationHandler(
+        entry_points=[CallbackQueryHandler(post_init, "^nav_post_start$")],
         states={
-            WAITING_POST_CONTENT: [CallbackQueryHandler(post_chat_selected, pattern="^psel_"), MessageHandler(filters.ALL & ~filters.COMMAND, post_content_rcv)],
-            WAITING_POST_TIME: [MessageHandler(filters.TEXT & ~filters.COMMAND, post_time_rcv)],
-            WAITING_POST_DELETE: [MessageHandler(filters.TEXT & ~filters.COMMAND, post_delete_rcv)]
+            WAITING_POST_CONTENT: [CallbackQueryHandler(post_content, "^ps_"), MessageHandler(filters.ALL, post_content)],
+            WAITING_POST_TIME: [MessageHandler(filters.TEXT, post_time)],
+            WAITING_POST_DELETE: [MessageHandler(filters.TEXT, post_final)]
         },
-        fallbacks=[CallbackQueryHandler(main_callback, pattern="^main_menu$")],
-        allow_reentry=True
-    )
-
-    app.add_handler(conv_add_chat)
-    app.add_handler(conv_bw)
-    app.add_handler(conv_post)
+        fallbacks=[]
+    ))
     
-    # Main Callback & Tracker
     app.add_handler(CallbackQueryHandler(main_callback))
-    app.add_handler(ChatMemberHandler(track_chat_member_updates, ChatMemberHandler.CHAT_MEMBER))
-
-    print("🚀
+    app.run_polling()
